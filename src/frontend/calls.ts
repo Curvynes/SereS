@@ -39,7 +39,7 @@ interface CallSignal {
 interface CallDeps {
   api(path: string): Promise<any>;
   post(path: string, body?: object): Promise<any>;
-  me(): { id: string };
+  me(): { id: string; username: string; display_name?: string | null };
   identity(): SeresIdentity;
   showAlert(message: string): void;
   errorText(error: unknown): string;
@@ -48,6 +48,8 @@ interface CallDeps {
   /** A call moved to a new group chat: show it in the chat list. */
   chatCreated(chatId: string): void;
   openChat(chatId: string): void;
+  /** Profile picture (or initial) of a user, as in the chat list. */
+  avatar(username: string, label: string): HTMLElement;
 }
 
 const SeresCalls = (() => {
@@ -66,6 +68,7 @@ const SeresCalls = (() => {
     pc: RTCPeerConnection;
     audio: HTMLAudioElement;
     offerer: boolean;
+    stream?: MediaStream;
   }
 
   interface Active {
@@ -152,6 +155,8 @@ const SeresCalls = (() => {
     pc.ontrack = (event) => {
       audio.srcObject = event.streams[0];
       audio.play().catch(() => {});
+      peer.stream = event.streams[0];
+      watchLevel(userId, event.streams[0]);
     };
     const peer: Peer = { pc, audio, offerer };
     pc.onconnectionstatechange = () => {
@@ -168,6 +173,7 @@ const SeresCalls = (() => {
   }
 
   function closePeer(userId: string, peer: Peer) {
+    unwatchLevel(userId);
     peer.pc.close();
     peer.audio.srcObject = null;
     if (active && active.peers.get(userId) === peer) active.peers.delete(userId);
@@ -265,6 +271,7 @@ const SeresCalls = (() => {
       timer: window.setInterval(renderPanel, 1000),
     };
     calls = calls.filter((c) => c.id !== call.id).concat(call);
+    watchLevel(deps.me().id, active.stream);
     syncPeers();
     renderIncoming();
     renderPanel();
@@ -311,10 +318,12 @@ const SeresCalls = (() => {
   function stopActive(stopMicrophone = true) {
     if (!active) return;
     for (const [id, peer] of active.peers) closePeer(id, peer);
+    unwatchLevel(deps.me().id);
     if (stopMicrophone) active.stream.getTracks().forEach((track) => track.stop());
     clearInterval(active.timer);
     active = null;
     stopTone();
+    closeWindow();
   }
 
   function toggleMute() {
@@ -455,17 +464,256 @@ const SeresCalls = (() => {
     }
   }
 
+  // -------------------------------------------------- who is speaking
+
+  // A green ring shows who is speaking: the loudness of each stream is
+  // measured a few times per second (nothing is recorded or sent anywhere).
+  const levels = new Map<string, { source: MediaStreamAudioSourceNode; analyser: AnalyserNode; heardAt: number }>();
+  let levelTimer: number | null = null;
+
+  function watchLevel(userId: string, stream: MediaStream) {
+    unwatchLevel(userId);
+    try {
+      audioContext = audioContext || new AudioContext();
+      audioContext.resume().catch(() => {});
+      const source = audioContext.createMediaStreamSource(stream);
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 512;
+      source.connect(analyser);
+      levels.set(userId, { source, analyser, heardAt: 0 });
+    } catch {
+      return;
+    }
+    if (levelTimer === null) levelTimer = window.setInterval(showSpeaking, 120);
+  }
+
+  function unwatchLevel(userId: string) {
+    const level = levels.get(userId);
+    if (!level) return;
+    level.source.disconnect();
+    levels.delete(userId);
+    if (!levels.size && levelTimer !== null) {
+      clearInterval(levelTimer);
+      levelTimer = null;
+    }
+  }
+
+  function showSpeaking() {
+    const now = Date.now();
+    const samples = new Uint8Array(512);
+    for (const [userId, level] of levels) {
+      level.analyser.getByteTimeDomainData(samples);
+      let sum = 0;
+      for (const value of samples) sum += ((value - 128) / 128) ** 2;
+      const loud = Math.sqrt(sum / samples.length) > 0.035;
+      const muted = userId === deps.me().id && active?.muted;
+      if (loud && !muted) level.heardAt = now;
+      // Stays on a moment after the last sound, so the ring doesn't flicker.
+      const speaking = now - level.heardAt < 400;
+      windowEl?.querySelector(`[data-user="${CSS.escape(userId)}"]`)?.classList.toggle("speaking", speaking);
+    }
+  }
+
+  // ------------------------------------------------------ call window
+
+  let windowEl: HTMLElement | null = null;
+  let parts: { title: HTMLElement; status: HTMLElement; tiles: HTMLElement; buttons: HTMLElement; popButton: HTMLButtonElement } | null = null;
+  let tilesSignature = "";
+  // The separate window, when the call was moved out of the page.
+  let popup: Window | null = null;
+  const POSITION_KEY = "seres-call-position";
+
+  function createWindow() {
+    const box = el("div", "call-window");
+    const head = el("div", "call-window-head");
+    const titles = el("div", "call-window-titles");
+    const title = el("span", "call-window-title");
+    title.title = t("call.openChat");
+    const status = el("span", "call-window-status");
+    titles.append(title, status);
+    const popButton = el("button", "call-window-pop", "⧉") as HTMLButtonElement;
+    popButton.type = "button";
+    popButton.addEventListener("click", () => void (popup ? closeWindow(true) : popOut()));
+    head.append(titles, popButton);
+    const tiles = el("div", "call-tiles");
+    const buttons = el("div", "call-buttons");
+    box.append(head, tiles, buttons);
+    makeDraggable(box, head);
+    parts = { title, status, tiles, buttons, popButton };
+    tilesSignature = "";
+    return box;
+  }
+
+  /**
+   * The window can be moved by its title bar; the place is remembered.
+   * A click on the name without moving opens the chat.
+   */
+  function makeDraggable(box: HTMLElement, handle: HTMLElement) {
+    let start: { x: number; y: number; left: number; top: number; onTitle: boolean; moved: boolean } | null = null;
+    handle.addEventListener("pointerdown", (event) => {
+      const target = event.target as Element;
+      if (target.closest("button") || event.button !== 0) return;
+      const rect = box.getBoundingClientRect();
+      start = {
+        x: event.clientX,
+        y: event.clientY,
+        left: rect.left,
+        top: rect.top,
+        onTitle: !!target.closest(".call-window-title"),
+        moved: false,
+      };
+      if (popup) return;
+      handle.setPointerCapture(event.pointerId);
+      box.classList.add("dragging");
+    });
+    handle.addEventListener("pointermove", (event) => {
+      if (!start) return;
+      if (Math.abs(event.clientX - start.x) + Math.abs(event.clientY - start.y) > 4) start.moved = true;
+      if (!popup && start.moved) place(box, start.left + event.clientX - start.x, start.top + event.clientY - start.y);
+    });
+    const stop = () => {
+      if (!start) return;
+      const { onTitle, moved } = start;
+      start = null;
+      box.classList.remove("dragging");
+      if (!moved) {
+        if (onTitle && active) {
+          if (popup) window.focus();
+          deps.openChat(active.call.chat_id);
+        }
+        return;
+      }
+      const rect = box.getBoundingClientRect();
+      try {
+        localStorage.setItem(POSITION_KEY, JSON.stringify({ left: rect.left, top: rect.top }));
+      } catch {
+        // Not saved (private window): it starts at the default place next time.
+      }
+    };
+    handle.addEventListener("pointerup", stop);
+    handle.addEventListener("pointercancel", stop);
+  }
+
+  /** Moves the window, but never (partly) out of the browser window. */
+  function place(box: HTMLElement, left: number, top: number) {
+    const maxLeft = window.innerWidth - box.offsetWidth - 8;
+    const maxTop = window.innerHeight - box.offsetHeight - 8;
+    box.style.left = Math.max(8, Math.min(left, maxLeft)) + "px";
+    box.style.top = Math.max(8, Math.min(top, maxTop)) + "px";
+    box.style.right = "auto";
+    box.style.transform = "none";
+  }
+
+  function restorePosition(box: HTMLElement) {
+    try {
+      const saved = JSON.parse(localStorage.getItem(POSITION_KEY) || "null");
+      if (saved && typeof saved.left === "number") place(box, saved.left, saved.top);
+    } catch {
+      // Default place from the stylesheet.
+    }
+  }
+
+  window.addEventListener("resize", () => {
+    if (windowEl && !popup && windowEl.style.left) {
+      place(windowEl, parseFloat(windowEl.style.left), parseFloat(windowEl.style.top));
+    }
+  });
+
+  /**
+   * Moves the call into its own window: a picture-in-picture window that stays
+   * on top (Chrome, Edge), otherwise a normal popup. The call keeps running in
+   * this page; only the controls move.
+   */
+  async function popOut() {
+    if (!windowEl || popup) return;
+    const pip = (window as any).documentPictureInPicture;
+    let win: Window | null = null;
+    try {
+      win = pip
+        ? await pip.requestWindow({ width: 380, height: 360 })
+        : window.open("", "seres-call", "popup,width=380,height=380");
+    } catch {
+      win = null;
+    }
+    if (!win || !windowEl) {
+      deps.showAlert(t("call.popupBlocked"));
+      return;
+    }
+    popup = win;
+    const doc = win.document;
+    doc.title = "SereS – " + (active?.call.chat_name || "");
+    for (const link of document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]')) {
+      const copy = doc.createElement("link");
+      copy.rel = "stylesheet";
+      copy.href = link.href;
+      doc.head.appendChild(copy);
+    }
+    doc.body.className = document.body.className + " call-popup";
+    doc.body.appendChild(windowEl);
+    windowEl.removeAttribute("style");
+    win.addEventListener("pagehide", () => {
+      if (popup === win) closeWindow(true);
+    });
+    renderPanel();
+  }
+
+  /** Back into the page (back = true) or away completely (call ended). */
+  function closeWindow(back = false) {
+    const win = popup;
+    popup = null;
+    if (back && windowEl) {
+      document.body.appendChild(windowEl);
+      restorePosition(windowEl);
+      renderPanel();
+    }
+    if (win && !win.closed) win.close();
+  }
+
+  function stateText(p: CallParticipant) {
+    if (p.id === deps.me().id) return "";
+    if (p.state === "ringing") return t("call.ringingShort");
+    if (p.state !== "joined") return t("call.notThere");
+    const peer = active?.peers.get(p.id);
+    return peer?.pc.connectionState === "connected" ? "" : t("call.connectingShort");
+  }
+
+  function renderTiles(people: CallParticipant[]) {
+    if (!parts || !active) return;
+    const signature = JSON.stringify(people.map((p) => [p.id, p.state, stateText(p)])) + active.muted;
+    if (signature === tilesSignature) return;
+    tilesSignature = signature;
+    parts.tiles.textContent = "";
+    parts.tiles.classList.toggle("many", people.length > 4);
+    const meId = deps.me().id;
+    for (const p of people) {
+      const tile = el("div", "call-tile" + (p.state === "joined" ? "" : " waiting"));
+      tile.dataset.user = p.id;
+      const picture = el("div", "call-tile-avatar");
+      const avatar = deps.avatar(p.username, nameOf(p));
+      // Absolute addresses, so the pictures also load in the separate window.
+      avatar.querySelectorAll("img").forEach((img) => (img.src = img.src));
+      picture.appendChild(avatar);
+      if (p.id === meId && active.muted) picture.appendChild(el("span", "call-tile-muted", "🔇"));
+      const name = el("div", "call-tile-name", p.id === meId ? t("call.you") : nameOf(p));
+      tile.append(picture, name);
+      const state = stateText(p);
+      if (state) tile.appendChild(el("div", "call-tile-state", state));
+      parts.tiles.appendChild(tile);
+    }
+  }
+
   function renderPanel() {
-    let panel = document.getElementById("call-panel");
     if (!active) {
-      panel?.remove();
+      windowEl?.remove();
+      windowEl = null;
+      parts = null;
       if (tone === "back") stopTone();
       return;
     }
-    if (!panel) {
-      panel = el("div", "call-panel");
-      panel.id = "call-panel";
-      document.body.appendChild(panel);
+    if (!windowEl) {
+      windowEl = createWindow();
+      document.body.appendChild(windowEl);
+      restorePosition(windowEl);
     }
     const meId = deps.me().id;
     const others = active.call.participants.filter((p) => p.id !== meId && p.state !== "left");
@@ -478,36 +726,26 @@ const SeresCalls = (() => {
     if (!joinedOthers.length && active.call.started_by === meId) playTone("back");
     else if (tone === "back") stopTone();
 
-    panel.textContent = "";
-    const head = el("div", "call-panel-head");
-    const title = el("button", "call-panel-title", active.call.chat_name);
-    title.type = "button";
-    title.title = t("call.openChat");
-    const chatId = active.call.chat_id;
-    title.addEventListener("click", () => deps.openChat(chatId));
-    head.append(title, el("span", "call-panel-status", status));
-    const people = el("div", "call-people");
-    for (const p of others) {
-      const peer = active.peers.get(p.id);
-      const state =
-        p.state === "joined"
-          ? peer?.pc.connectionState === "connected"
-            ? ""
-            : t("call.connectingShort")
-          : p.state === "ringing"
-            ? t("call.ringingShort")
-            : t("call.notThere");
-      const chip = el("span", "call-person" + (p.state === "joined" && !state ? " live" : ""), nameOf(p));
-      if (state) chip.appendChild(el("small", "", " · " + state));
-      people.appendChild(chip);
-    }
-    const buttons = el("div", "call-buttons");
-    buttons.append(
+    const p = parts!;
+    p.title.textContent = active.call.chat_name;
+    p.status.textContent = status;
+    p.popButton.textContent = popup ? "⇲" : "⧉";
+    p.popButton.title = t(popup ? "call.popIn" : "call.popOut");
+    if (popup) popup.document.title = "SereS – " + active.call.chat_name + " · " + status;
+
+    const me = active.call.participants.find((x) => x.id === meId);
+    renderTiles(me ? [me, ...others] : others);
+
+    p.buttons.textContent = "";
+    p.buttons.append(
       actionButton(active.muted ? "🔇" : "🎤", "call-mute" + (active.muted ? " on" : ""), t(active.muted ? "call.unmute" : "call.mute"), toggleMute),
-      actionButton("👤+", "call-add", t("call.addPeople"), () => void addPeople()),
+      actionButton("👤+", "call-add", t("call.addPeople"), () => {
+        // Picking people happens in the page.
+        if (popup) window.focus();
+        void addPeople();
+      }),
       actionButton("📞", "call-hangup", t("call.hangUp"), () => void hangUp()),
     );
-    panel.append(head, people, buttons);
   }
 
   function init(dependencies: CallDeps) {

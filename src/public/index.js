@@ -3465,6 +3465,7 @@
                     if (current?.id !== chatId)
                         openChat(chatId);
                 },
+                avatar: (username, label) => avatarEl(username, { label }),
             });
         window.setInterval(() => {
             if (document.visibilityState === "visible")

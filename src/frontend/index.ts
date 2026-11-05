@@ -3819,6 +3819,7 @@
       openChat: (chatId) => {
         if (current?.id !== chatId) openChat(chatId);
       },
+      avatar: (username, label) => avatarEl(username, { label }),
     });
 
     window.setInterval(() => {
