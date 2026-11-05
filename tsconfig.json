@@ -22,6 +22,7 @@
     "src/frontend/codes.ts",
     "src/frontend/passkeys.ts",
     "src/frontend/crypto.ts",
+    "src/frontend/calls.ts",
     "src/frontend/login.ts",
     "src/frontend/index.ts",
     "src/frontend/changelog.ts"
