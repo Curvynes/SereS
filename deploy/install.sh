@@ -4,6 +4,7 @@
 #   - installs what is missing: Python 3 + venv, git, curl, Node.js + npm, pm2
 #   - downloads SereS with git, or updates an existing copy with git pull
 #   - creates the Python venv and installs the requirements + gunicorn
+#   - installs and sets up a TURN server (coturn) for voice calls
 #   - writes ecosystem.config.js (with PUBLIC_URL / WEBAUTHN_RP_ID if given)
 #     and starts SereS with pm2
 #   - lets pm2 start SereS again after a reboot
@@ -11,11 +12,13 @@
 # Usage (as the user SereS should run as, not as root; asks for sudo):
 #   ./deploy/install.sh [--port 2222] [--workers 4] [--name SereS]
 #        [--public-url https://beta.seres-chat.com] [--rp-id seres-chat.com]
+#        [--turn-host 203.0.113.10] [--no-turn]
 #        [--dir ~/SereS] [--branch main] [--no-pull] [--no-ipv6] [--no-startup]
 #
 # Without a SereS checkout around it, the script clones SereS into --dir.
-# Run it again at any time to update: it pulls the newest version, updates
-# the venv and restarts SereS.
+# Run it again at any time to update: it pulls the newest version, installs
+# what is new, updates the venv and restarts SereS. Options from the last
+# run are kept.
 
 set -euo pipefail
 
@@ -23,8 +26,13 @@ REPO_URL="https://github.com/SereSChat/SereS.git"
 BRANCH="main"
 DIR=""
 NAME="SereS"
-PORT="2222"
+PORT=""
 WORKERS="4"
+TURN=1
+TURN_HOST=""
+TURN_PORT=3478
+TURN_MIN_PORT=49160
+TURN_MAX_PORT=49200
 PUBLIC_URL=""
 RP_ID=""
 IPV6=1
@@ -33,7 +41,7 @@ STARTUP=1
 NODE_MAJOR=22
 
 usage() {
-  sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
   exit "${1:-0}"
 }
 
@@ -54,6 +62,8 @@ while [[ $# -gt 0 ]]; do
     --name) NAME="${2:-}"; shift 2 ;;
     --public-url) PUBLIC_URL="${2:-}"; shift 2 ;;
     --rp-id) RP_ID="${2:-}"; shift 2 ;;
+    --turn-host) TURN_HOST="${2:-}"; shift 2 ;;
+    --no-turn) TURN=0; shift ;;
     --dir) DIR="${2:-}"; shift 2 ;;
     --branch) BRANCH="${2:-}"; shift 2 ;;
     --no-pull) PULL=0; shift ;;
@@ -64,7 +74,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ "$PORT" =~ ^[0-9]+$ ]] || die "--port must be a number"
+[[ -z "$PORT" || "$PORT" =~ ^[0-9]+$ ]] || die "--port must be a number"
 [[ "$WORKERS" =~ ^[0-9]+$ ]] || die "--workers must be a number"
 command -v apt-get >/dev/null || die "only Ubuntu / Debian (apt) are supported"
 
@@ -130,11 +140,10 @@ fi
 
 if [[ $PULL -eq 1 && -d "$DIR/.git" ]]; then
   step "Updating SereS with git pull"
-  if [[ -n "$(git -C "$DIR" status --porcelain --untracked-files=no)" ]]; then
-    echo "    Skipped: files in $DIR were changed by hand (see: git -C $DIR status)."
-  else
-    git -C "$DIR" pull --ff-only || echo "    git pull failed, keeping the current version."
-  fi
+  # Changes made by hand (e.g. mail settings in src/backend/.env) are put
+  # aside for the pull and put back afterwards.
+  git -C "$DIR" pull --ff-only --autostash ||
+    echo "    git pull failed, keeping the current version (see: git -C $DIR status)."
 fi
 BACKEND="$DIR/src/backend"
 VENV="$DIR/.venv"
@@ -153,6 +162,10 @@ previous() {
 }
 PUBLIC_URL="${PUBLIC_URL:-$(previous PUBLIC_URL)}"
 RP_ID="${RP_ID:-$(previous WEBAUTHN_RP_ID)}"
+if [[ -z "$PORT" && -f "$DIR/ecosystem.config.js" ]]; then
+  PORT="$(grep -o -- '-b 127.0.0.1:[0-9]*' "$DIR/ecosystem.config.js" | head -n 1 | cut -d: -f2 || true)"
+fi
+PORT="${PORT:-2222}"
 [[ "$PUBLIC_URL" != *"'"* && "$RP_ID" != *"'"* ]] || die "no ' allowed in --public-url / --rp-id"
 
 ENV_LINES=""
@@ -160,6 +173,89 @@ ENV_LINES=""
         PUBLIC_URL: '$PUBLIC_URL',"
 [[ -n "$RP_ID" ]] && ENV_LINES="$ENV_LINES
         WEBAUTHN_RP_ID: '$RP_ID',"
+
+# ------------------------------------------------------------------- TURN
+
+# Calls go directly between the browsers. When that is not possible (some
+# mobile networks, company Wi-Fi), the audio is relayed by this TURN server.
+# It doesn't go through the Cloudflare tunnel, so its ports must be open.
+TURN_CONF=/etc/turnserver.conf
+TURN_MARK="# Written by SereS deploy/install.sh"
+if [[ $TURN -eq 1 ]]; then
+  if command -v turnserver >/dev/null; then
+    step "coturn is already installed"
+  else
+    step "Installing coturn (TURN server for calls)"
+    $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq coturn >/dev/null
+  fi
+
+  if [[ -z "$TURN_HOST" ]]; then
+    TURN_HOST="$(previous TURN_URLS | sed -n 's/^turn:\([^:?,]*\).*/\1/p')"
+  fi
+  if [[ -z "$TURN_HOST" ]]; then
+    TURN_HOST="$(curl -4 -fsS --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')"
+  fi
+  [[ "$TURN_HOST" =~ ^[A-Za-z0-9.-]+$ ]] || die "could not find the public address; use --turn-host"
+
+  TURN_SECRET=""
+  if $SUDO test -f "$TURN_CONF" && $SUDO grep -q "^$TURN_MARK" "$TURN_CONF"; then
+    TURN_SECRET="$($SUDO sed -n 's/^static-auth-secret=//p' "$TURN_CONF" | head -n 1)"
+  elif $SUDO test -f "$TURN_CONF"; then
+    $SUDO cp -n "$TURN_CONF" "$TURN_CONF.before-seres"
+  fi
+  TURN_SECRET="${TURN_SECRET:-$(python3 -c 'import secrets; print(secrets.token_hex(32))')}"
+  [[ "$TURN_SECRET" =~ ^[0-9a-f]+$ ]] || die "unexpected TURN secret in $TURN_CONF"
+
+  step "Writing $TURN_CONF (TURN on $TURN_HOST:$TURN_PORT)"
+  $SUDO tee "$TURN_CONF" >/dev/null <<TURNCONF
+$TURN_MARK. Run the script again instead of changing it.
+listening-port=$TURN_PORT
+min-port=$TURN_MIN_PORT
+max-port=$TURN_MAX_PORT
+realm=$TURN_HOST
+fingerprint
+use-auth-secret
+static-auth-secret=$TURN_SECRET
+no-cli
+no-tls
+no-dtls
+no-multicast-peers
+stale-nonce=600
+user-quota=12
+total-quota=1200
+simple-log
+syslog
+# Only relay to the internet, never into this server or private networks.
+denied-peer-ip=0.0.0.0-0.255.255.255
+denied-peer-ip=10.0.0.0-10.255.255.255
+denied-peer-ip=100.64.0.0-100.127.255.255
+denied-peer-ip=127.0.0.0-127.255.255.255
+denied-peer-ip=169.254.0.0-169.254.255.255
+denied-peer-ip=172.16.0.0-172.31.255.255
+denied-peer-ip=192.0.0.0-192.0.0.255
+denied-peer-ip=192.168.0.0-192.168.255.255
+denied-peer-ip=198.18.0.0-198.19.255.255
+denied-peer-ip=::1
+denied-peer-ip=fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+denied-peer-ip=fe80::-febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+TURNCONF
+  $SUDO chmod 640 "$TURN_CONF"
+  $SUDO chown root:turnserver "$TURN_CONF" 2>/dev/null || true
+  # Older Debian packages only start coturn with this switch.
+  if [[ -f /etc/default/coturn ]]; then
+    $SUDO sed -i 's/^#\?TURNSERVER_ENABLED=.*/TURNSERVER_ENABLED=1/' /etc/default/coturn
+  fi
+  if command -v systemctl >/dev/null && [[ -d /run/systemd/system ]]; then
+    $SUDO systemctl enable coturn >/dev/null 2>&1 || true
+    $SUDO systemctl restart coturn || echo "    coturn did not start, see: sudo journalctl -u coturn"
+  else
+    echo "    No systemd here: start coturn yourself (turnserver -c $TURN_CONF)."
+  fi
+
+  ENV_LINES="$ENV_LINES
+        TURN_URLS: 'turn:$TURN_HOST:$TURN_PORT?transport=udp,turn:$TURN_HOST:$TURN_PORT?transport=tcp',
+        TURN_SECRET: '$TURN_SECRET',"
+fi
 
 # ------------------------------------------------------------------- pm2
 
@@ -195,6 +291,8 @@ module.exports = {
   ],
 };
 EOF
+# It contains the TURN secret.
+chmod 600 "$DIR/ecosystem.config.js"
 
 step "Starting SereS with pm2"
 pm2 delete "$NAME" >/dev/null 2>&1 || true
@@ -235,3 +333,13 @@ Update SereS later (pulls the newest version and restarts):
 SereS only listens on this server. Point your Cloudflare tunnel or
 reverse proxy (nginx, Caddy) to http://localhost:$PORT.
 EOF
+if [[ $TURN -eq 1 ]]; then
+  cat <<EOF
+
+Voice calls: open these ports in the firewall of your hoster (e.g. netcup
+SCP -> Firewall) and on the server, if it has one (ufw):
+    TCP + UDP $TURN_PORT
+    UDP $TURN_MIN_PORT-$TURN_MAX_PORT
+Calls still work without them for most people, just not in every network.
+EOF
+fi
