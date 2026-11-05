@@ -2772,10 +2772,6 @@ def pending_friends_legacy():
 ACTIVE_CALL_STATES = ("ringing", "joined")
 
 
-def parse_iso(value):
-    return datetime.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
-
-
 def iso_ago(seconds):
     return (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=seconds)).strftime(
         "%Y-%m-%dT%H:%M:%SZ"
