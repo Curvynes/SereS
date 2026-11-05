@@ -446,4 +446,8 @@ window.SeresLang.en = {
   "call.addConfirm": "Add and call",
   "system.call": "📞 Call · {time}",
   "system.callMissed": "📞 Missed call from {actor}",
+  "call.you": "You",
+  "call.popOut": "Open in its own window",
+  "call.popIn": "Back into the page",
+  "call.popupBlocked": "The window could not be opened. Allow pop-ups for SereS in your browser.",
 };

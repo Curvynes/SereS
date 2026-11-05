@@ -446,4 +446,8 @@ window.SeresLang.de = {
   "call.addConfirm": "Hinzufügen und anrufen",
   "system.call": "📞 Anruf · {time}",
   "system.callMissed": "📞 Verpasster Anruf von {actor}",
+  "call.you": "Du",
+  "call.popOut": "In eigenem Fenster öffnen",
+  "call.popIn": "Zurück in die Seite",
+  "call.popupBlocked": "Das Fenster konnte nicht geöffnet werden. Erlaube Pop-ups für SereS im Browser.",
 };
