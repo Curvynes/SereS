@@ -436,3 +436,9 @@ def test_client_ip_behind_tunnel(app_module):
     assert ip("127.0.0.1") == "127.0.0.1"
     # from the internet the headers are ignored, so nobody picks their own IP
     assert ip("203.0.113.9", {"CF-Connecting-IP": "1.2.3.4", "X-Forwarded-For": "1.2.3.4"}) == "203.0.113.9"
+
+
+def test_pages_are_checked_again_after_updates(make_client):
+    client = make_client()
+    assert client.get("/index.js").headers["Cache-Control"] == "no-cache"
+    assert client.get("/api/me").headers["Cache-Control"] == "no-store"

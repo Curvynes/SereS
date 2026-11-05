@@ -220,6 +220,10 @@ def security_headers(response):
     response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(self), geolocation=()")
     if flask.request.path.startswith("/api/"):
         response.headers.setdefault("Cache-Control", "no-store")
+    else:
+        # Pages and scripts are checked again on every load (cheap with the
+        # ETag), so after an update no browser or Cloudflare mixes old and new files.
+        response.headers.setdefault("Cache-Control", "no-cache")
     if flask.request.is_secure:
         response.headers.setdefault("Strict-Transport-Security", "max-age=31536000")
     return response

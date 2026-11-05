@@ -1026,7 +1026,7 @@
     const opened = current;
     $("pinned-bar").classList.add("modal-hidden");
     $("search-btn").classList.remove("modal-hidden");
-    $("call-btn").classList.remove("modal-hidden");
+    $("call-btn")?.classList.remove("modal-hidden");
     document.querySelectorAll(".chat-list-item").forEach((item) => {
       item.classList.toggle("active", (item as HTMLElement).dataset.chatid === chatId);
     });
@@ -1078,7 +1078,7 @@
     ($("message-input-field") as HTMLTextAreaElement).value = "";
     $("pinned-bar").classList.add("modal-hidden");
     $("search-btn").classList.add("modal-hidden");
-    $("call-btn").classList.add("modal-hidden");
+    $("call-btn")?.classList.add("modal-hidden");
     $("jump-bottom").classList.add("modal-hidden");
     $("typing-bubble").classList.add("modal-hidden");
     current = null;
@@ -1112,7 +1112,7 @@
     opened.changedKeys = changed;
     opened.missingKeys = missing;
     $("current-chat-name").textContent = details.name;
-    $("call-btn").classList.toggle("modal-hidden", !!details.blocked);
+    $("call-btn")?.classList.toggle("modal-hidden", !!details.blocked);
     opened.subtitle =
       details.type === "group"
         ? t("chat.groupSub", { count: details.member_count })
@@ -3562,8 +3562,8 @@
       picker.value = "";
     });
     $("search-btn").addEventListener("click", openSearch);
-    $("call-btn").addEventListener("click", () => {
-      if (current) SeresCalls.start(current.id);
+    $("call-btn")?.addEventListener("click", () => {
+      if (current && typeof SeresCalls !== "undefined") SeresCalls.start(current.id);
     });
     $("search-input").addEventListener("input", onSearchInput);
     $("search-input").addEventListener("keydown", (event) => {
@@ -3803,7 +3803,8 @@
       showInvite(pendingInvite);
     }
 
-    SeresCalls.init({
+    // A cached page from before calls existed doesn't load calls.js.
+    if (typeof SeresCalls !== "undefined") SeresCalls.init({
       api,
       post,
       me: () => me,
