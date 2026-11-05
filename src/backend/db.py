@@ -182,6 +182,26 @@ SCHEMA = [
         PRIMARY KEY (message_id, recipient_id)
     )""",
     "CREATE INDEX IF NOT EXISTS idx_key_shares_recipient ON message_key_shares(recipient_id)",
+    # Voice calls in the browser. The audio goes directly between the browsers
+    # (WebRTC); the server only knows who is called and who joined.
+    """CREATE TABLE IF NOT EXISTS calls (
+        id TEXT PRIMARY KEY,
+        chat_id TEXT NOT NULL,
+        started_by TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        answered_at TEXT,
+        ended_at TEXT
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_calls_chat ON calls(chat_id, ended_at)",
+    """CREATE TABLE IF NOT EXISTS call_participants (
+        call_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        state TEXT NOT NULL CHECK (state IN ('ringing', 'joined', 'left', 'declined', 'missed')),
+        updated_at TEXT NOT NULL,
+        seen_at TEXT NOT NULL,
+        PRIMARY KEY (call_id, user_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_call_participants_user ON call_participants(user_id, state)",
     # Password reset links sent by e-mail. Only a hash of the token is stored.
     """CREATE TABLE IF NOT EXISTS password_resets (
         token_hash TEXT PRIMARY KEY,

@@ -2760,6 +2760,227 @@ def pending_friends_legacy():
     return ok(pending_friends=names)
 
 
+# --------------------------------------------------------------------------
+# Voice calls (browser, WebRTC)
+# --------------------------------------------------------------------------
+
+ACTIVE_CALL_STATES = ("ringing", "joined")
+
+
+def iso_ago(seconds):
+    return (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=seconds)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+
+
+def active_call(conn, chat_id):
+    return conn.execute(
+        "SELECT * FROM calls WHERE chat_id = ? AND ended_at IS NULL ORDER BY started_at DESC LIMIT 1", (chat_id,)
+    ).fetchone()
+
+
+def set_call_state(conn, call_id, user_id, state):
+    now = db.now_iso()
+    conn.execute(
+        """INSERT INTO call_participants (call_id, user_id, state, updated_at, seen_at) VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(call_id, user_id) DO UPDATE SET state = excluded.state, updated_at = excluded.updated_at,
+           seen_at = excluded.seen_at""",
+        (call_id, user_id, state, now, now),
+    )
+
+
+def finish_call_if_over(conn, call_id):
+    """A call is over when nobody is in it, or one person is left and nobody rings."""
+    states = [
+        row["state"] for row in conn.execute("SELECT state FROM call_participants WHERE call_id = ?", (call_id,))
+    ]
+    joined, ringing = states.count("joined"), states.count("ringing")
+    if joined == 0 or (joined == 1 and ringing == 0):
+        end_call(conn, call_id)
+
+
+def end_call(conn, call_id):
+    call = conn.execute("SELECT * FROM calls WHERE id = ? AND ended_at IS NULL", (call_id,)).fetchone()
+    if call is None:
+        return
+    now = db.now_iso()
+    conn.execute("UPDATE calls SET ended_at = ? WHERE id = ?", (now, call_id))
+    conn.execute(
+        "UPDATE call_participants SET state = 'missed', updated_at = ? WHERE call_id = ? AND state = 'ringing'",
+        (now, call_id),
+    )
+    conn.execute(
+        "UPDATE call_participants SET state = 'left', updated_at = ? WHERE call_id = ? AND state = 'joined'",
+        (now, call_id),
+    )
+
+
+def leave_other_calls(conn, user_id, keep_call_id=None):
+    """Someone can only be in one call at a time."""
+    rows = conn.execute(
+        """SELECT p.call_id FROM call_participants p JOIN calls c ON c.id = p.call_id
+           WHERE p.user_id = ? AND p.state = 'joined' AND c.ended_at IS NULL AND p.call_id != ?""",
+        (user_id, keep_call_id or ""),
+    ).fetchall()
+    for row in rows:
+        set_call_state(conn, row["call_id"], user_id, "left")
+        finish_call_if_over(conn, row["call_id"])
+
+
+def start_call(conn, chat_id, caller_id):
+    leave_other_calls(conn, caller_id)
+    call_id = str(uuid.uuid4())
+    conn.execute(
+        "INSERT INTO calls (id, chat_id, started_by, started_at) VALUES (?, ?, ?, ?)",
+        (call_id, chat_id, caller_id, db.now_iso()),
+    )
+    for row in conn.execute("SELECT user_id FROM chat_members WHERE chat_id = ?", (chat_id,)).fetchall():
+        set_call_state(conn, call_id, row["user_id"], "joined" if row["user_id"] == caller_id else "ringing")
+    return call_id
+
+
+def serialize_call(conn, call, me_id):
+    chat = membership(call["chat_id"], me_id)
+    participants = conn.execute(
+        """SELECT p.user_id, p.state, u.username, u.display_name FROM call_participants p
+           JOIN users u ON u.id = p.user_id WHERE p.call_id = ? ORDER BY u.username COLLATE NOCASE""",
+        (call["id"],),
+    ).fetchall()
+    summary = chat_summary(chat, me_id) if chat else None
+    return {
+        "id": call["id"],
+        "chat_id": call["chat_id"],
+        "chat_name": summary["name"] if summary else "",
+        "chat_type": chat["type"] if chat else "dm",
+        "started_by": call["started_by"],
+        "started_at": call["started_at"],
+        "answered_at": call["answered_at"],
+        "participants": [
+            {"id": row["user_id"], "username": row["username"], "display_name": display_name(row), "state": row["state"]}
+            for row in participants
+        ],
+    }
+
+
+def require_call(call_id, states=ACTIVE_CALL_STATES):
+    """The active call and my part in it."""
+    conn = get_db()
+    call = conn.execute("SELECT * FROM calls WHERE id = ? AND ended_at IS NULL", (call_id,)).fetchone()
+    mine = (
+        conn.execute(
+            "SELECT state FROM call_participants WHERE call_id = ? AND user_id = ?", (call_id, current_user()["id"])
+        ).fetchone()
+        if call
+        else None
+    )
+    if call is None or mine is None or mine["state"] not in states:
+        flask.abort(flask.make_response(error("This call has ended", 404)))
+    return call
+
+
+@app.route("/api/chats/<chat_id>/call", methods=["POST"])
+@login_required
+def call_chat(chat_id):
+    """Calls everyone in the chat, or joins the call that is already running there."""
+    me_id = current_user()["id"]
+    chat = require_membership(chat_id)
+    if chat["type"] == "dm":
+        others = [m["id"] for m in chat_members(chat_id) if m["id"] != me_id]
+        if not others or is_blocked_between(me_id, others[0]):
+            return error("You can't call this person", 403)
+    if rate_limited(("call", me_id), 20, 600):
+        return error("Too many calls, please wait a moment", 429)
+    conn = get_db()
+    with db.write_transaction(conn):
+        expire_calls(conn)
+        call = active_call(conn, chat_id)
+        if call is None:
+            call_id = start_call(conn, chat_id, me_id)
+        else:
+            call_id = call["id"]
+            leave_other_calls(conn, me_id, call_id)
+            set_call_state(conn, call_id, me_id, "joined")
+            conn.execute("UPDATE calls SET answered_at = COALESCE(answered_at, ?) WHERE id = ?", (db.now_iso(), call_id))
+    call = conn.execute("SELECT * FROM calls WHERE id = ?", (call_id,)).fetchone()
+    return ok(call=serialize_call(conn, call, me_id))
+
+
+@app.route("/api/calls/<call_id>/answer", methods=["POST"])
+@login_required
+def answer_call(call_id):
+    me_id = current_user()["id"]
+    require_call(call_id)
+    conn = get_db()
+    with db.write_transaction(conn):
+        leave_other_calls(conn, me_id, call_id)
+        set_call_state(conn, call_id, me_id, "joined")
+        conn.execute("UPDATE calls SET answered_at = COALESCE(answered_at, ?) WHERE id = ?", (db.now_iso(), call_id))
+    call = conn.execute("SELECT * FROM calls WHERE id = ?", (call_id,)).fetchone()
+    return ok(call=serialize_call(conn, call, me_id))
+
+
+@app.route("/api/calls/<call_id>/decline", methods=["POST"])
+@login_required
+def decline_call(call_id):
+    require_call(call_id, ("ringing",))
+    conn = get_db()
+    with db.write_transaction(conn):
+        set_call_state(conn, call_id, current_user()["id"], "declined")
+        finish_call_if_over(conn, call_id)
+    return ok()
+
+
+@app.route("/api/calls/<call_id>/leave", methods=["POST"])
+@login_required
+def leave_call(call_id):
+    require_call(call_id)
+    conn = get_db()
+    with db.write_transaction(conn):
+        set_call_state(conn, call_id, current_user()["id"], "left")
+        finish_call_if_over(conn, call_id)
+    return ok()
+
+
+def expire_calls(conn):
+    """Ringing stops after a while; people whose browser stopped asking have left."""
+    stale = conn.execute(
+        """SELECT p.call_id, p.user_id, p.state FROM call_participants p JOIN calls c ON c.id = p.call_id
+           WHERE c.ended_at IS NULL AND ((p.state = 'ringing' AND p.updated_at < ?)
+                                        OR (p.state = 'joined' AND p.seen_at < ?))""",
+        (iso_ago(CALL_RING_SECONDS), iso_ago(CALL_GONE_SECONDS)),
+    ).fetchall()
+    for row in stale:
+        set_call_state(conn, row["call_id"], row["user_id"], "missed" if row["state"] == "ringing" else "left")
+    for call_id in {row["call_id"] for row in stale}:
+        finish_call_if_over(conn, call_id)
+
+
+CALL_RING_SECONDS = 45
+CALL_GONE_SECONDS = 20
+
+
+@app.route("/api/calls")
+@login_required
+def my_calls():
+    """Polled by the browser: calls that ring for me or that I am in."""
+    me_id = current_user()["id"]
+    conn = get_db()
+    with db.write_transaction(conn):
+        expire_calls(conn)
+        conn.execute(
+            """UPDATE call_participants SET seen_at = ? WHERE user_id = ? AND state = 'joined'
+               AND call_id IN (SELECT id FROM calls WHERE ended_at IS NULL)""",
+            (db.now_iso(), me_id),
+        )
+    calls = conn.execute(
+        """SELECT c.* FROM calls c JOIN call_participants p ON p.call_id = c.id
+           WHERE p.user_id = ? AND p.state IN ('ringing', 'joined') AND c.ended_at IS NULL
+           ORDER BY c.started_at""",
+        (me_id,),
+    ).fetchall()
+    return ok(calls=[serialize_call(conn, call, me_id) for call in calls])
+
+
 init_app()
 start_heartbeat()
 
