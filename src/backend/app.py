@@ -2813,6 +2813,7 @@ def end_call(conn, call_id):
         "UPDATE call_participants SET state = 'left', updated_at = ? WHERE call_id = ? AND state = 'joined'",
         (now, call_id),
     )
+    conn.execute("DELETE FROM call_signals WHERE call_id = ?", (call_id,))
 
 
 def leave_other_calls(conn, user_id, keep_call_id=None):
@@ -2953,6 +2954,7 @@ def expire_calls(conn):
         set_call_state(conn, row["call_id"], row["user_id"], "missed" if row["state"] == "ringing" else "left")
     for call_id in {row["call_id"] for row in stale}:
         finish_call_if_over(conn, call_id)
+    conn.execute("DELETE FROM call_signals WHERE created_at < ?", (iso_ago(120),))
 
 
 CALL_RING_SECONDS = 45
@@ -2978,7 +2980,73 @@ def my_calls():
            ORDER BY c.started_at""",
         (me_id,),
     ).fetchall()
-    return ok(calls=[serialize_call(conn, call, me_id) for call in calls])
+    signals = conn.execute(
+        "SELECT id, call_id, from_id, kind, data FROM call_signals WHERE to_id = ? AND id > ? ORDER BY id",
+        (me_id, flask.request.args.get("after", 0, type=int)),
+    ).fetchall()
+    return ok(
+        calls=[serialize_call(conn, call, me_id) for call in calls],
+        signals=[
+            {"id": row["id"], "call_id": row["call_id"], "from": row["from_id"], "kind": row["kind"],
+             "data": json.loads(row["data"])}
+            for row in signals
+        ],
+    )
+
+
+@app.route("/api/calls/<call_id>/signal", methods=["POST"])
+@login_required
+def call_signal(call_id):
+    """Passes a connection offer or answer from one browser of the call to another."""
+    me_id = current_user()["id"]
+    require_call(call_id, ("joined",))
+    data = json_body()
+    to_id = str_field(data, "to", 64)
+    kind = data.get("kind")
+    payload = data.get("data")
+    if kind not in ("offer", "answer") or not isinstance(payload, dict):
+        return error("Invalid signal")
+    sdp, sig = payload.get("sdp"), payload.get("sig")
+    sdp_ok = isinstance(sdp, str) and 0 < len(sdp) <= 16000
+    sig_ok = isinstance(sig, str) and 0 < len(sig) <= 256 and B64_RE.match(sig)
+    if not sdp_ok or not sig_ok or set(payload) - {"sdp", "sig"}:
+        return error("Invalid signal")
+    if rate_limited(("call-signal", me_id), 120, 60):
+        return error("Too many signals", 429)
+    conn = get_db()
+    target = conn.execute(
+        "SELECT state FROM call_participants WHERE call_id = ? AND user_id = ?", (call_id, to_id)
+    ).fetchone()
+    if to_id == me_id or target is None or target["state"] != "joined":
+        return error("This person is not in the call", 409)
+    conn.execute(
+        "INSERT INTO call_signals (call_id, from_id, to_id, kind, data, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (call_id, me_id, to_id, kind, json.dumps({"sdp": sdp, "sig": sig}), db.now_iso()),
+    )
+    conn.commit()
+    return ok()
+
+
+@app.route("/api/calls/ice")
+@login_required
+def call_ice_servers():
+    """STUN / TURN servers for the browser. TURN gets short-lived credentials
+    (coturn "use-auth-secret"), so the shared secret never leaves the server."""
+    servers = []
+    turn_urls = [u.strip() for u in os.getenv("TURN_URLS", "").split(",") if u.strip()]
+    secret = os.getenv("TURN_SECRET", "")
+    if turn_urls and secret:
+        username = f"{int(time.time()) + 12 * 3600}:{current_user()['id']}"
+        credential = base64.b64encode(hmac.new(secret.encode(), username.encode(), hashlib.sha1).digest()).decode()
+        servers.append({"urls": turn_urls, "username": username, "credential": credential})
+    stun = [u.strip() for u in os.getenv("STUN_URLS", "").split(",") if u.strip()]
+    if not stun:
+        # The TURN server answers STUN too; without one, a public STUN server.
+        stun = [u.replace("turns:", "stun:").replace("turn:", "stun:").split("?")[0] for u in turn_urls[:1]] or [
+            "stun:stun.cloudflare.com:3478"
+        ]
+    servers.insert(0, {"urls": stun})
+    return ok(ice_servers=servers)
 
 
 init_app()

@@ -202,6 +202,18 @@ SCHEMA = [
         PRIMARY KEY (call_id, user_id)
     )""",
     "CREATE INDEX IF NOT EXISTS idx_call_participants_user ON call_participants(user_id, state)",
+    # Connection offers and answers between two browsers of a call (signed by
+    # the sender, so the server can't put itself in between). Kept briefly.
+    """CREATE TABLE IF NOT EXISTS call_signals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        call_id TEXT NOT NULL,
+        from_id TEXT NOT NULL,
+        to_id TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN ('offer', 'answer')),
+        data TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_call_signals_to ON call_signals(to_id, id)",
     # Password reset links sent by e-mail. Only a hash of the token is stored.
     """CREATE TABLE IF NOT EXISTS password_resets (
         token_hash TEXT PRIMARY KEY,
