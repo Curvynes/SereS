@@ -1996,18 +1996,23 @@ def create_chat():
         return error(f"A group needs 2-{MAX_GROUP_MEMBERS} members")
 
     conn = get_db()
+    chat_id = create_group(conn, me, name, members)
+    conn.commit()
+    return ok(chat_id=chat_id, message="Group created successfully!")
+
+
+def create_group(conn, owner, name, member_ids):
     chat_id = str(uuid.uuid4())
     now = db.now_iso()
     conn.execute(
         "INSERT INTO chats (id, type, name, owner_id, dm_key, created_at, last_activity) VALUES (?, 'group', ?, ?, NULL, ?, ?)",
-        (chat_id, name, me["id"], now, now),
+        (chat_id, name, owner["id"], now, now),
     )
-    add_member(conn, chat_id, me["id"], "owner")
-    for user_id in members:
+    add_member(conn, chat_id, owner["id"], "owner")
+    for user_id in member_ids:
         add_member(conn, chat_id, user_id)
-    add_system_message(conn, chat_id, "created", actor=display_name(me), name=name)
-    conn.commit()
-    return ok(chat_id=chat_id, message="Group created successfully!")
+    add_system_message(conn, chat_id, "created", actor=display_name(owner), name=name)
+    return chat_id
 
 
 @app.route("/api/new_chat", methods=["POST"])
@@ -2767,6 +2772,10 @@ def pending_friends_legacy():
 ACTIVE_CALL_STATES = ("ringing", "joined")
 
 
+def parse_iso(value):
+    return datetime.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
+
+
 def iso_ago(seconds):
     return (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=seconds)).strftime(
         "%Y-%m-%dT%H:%M:%SZ"
@@ -2805,6 +2814,12 @@ def end_call(conn, call_id):
         return
     now = db.now_iso()
     conn.execute("UPDATE calls SET ended_at = ? WHERE id = ?", (now, call_id))
+    caller = conn.execute("SELECT * FROM users WHERE id = ?", (call["started_by"],)).fetchone()
+    seconds = None
+    if call["answered_at"]:
+        seconds = max(0, int((parse_iso(now) - parse_iso(call["answered_at"])).total_seconds()))
+    # "Call · 2:31" or "Missed call" in the chat.
+    add_system_message(conn, call["chat_id"], "call", actor=display_name(caller) if caller else "", seconds=seconds)
     conn.execute(
         "UPDATE call_participants SET state = 'missed', updated_at = ? WHERE call_id = ? AND state = 'ringing'",
         (now, call_id),
@@ -3025,6 +3040,50 @@ def call_signal(call_id):
     )
     conn.commit()
     return ok()
+
+
+@app.route("/api/calls/<call_id>/add", methods=["POST"])
+@login_required
+def add_to_call(call_id):
+    """More people in a call: a new group with everyone who is in the call and
+    the added friends. This call ends and the group is called right away."""
+    me = current_user()
+    call = require_call(call_id, ("joined",))
+    usernames = json_body().get("usernames")
+    if not isinstance(usernames, list) or not usernames or len(usernames) > MAX_GROUP_MEMBERS:
+        return error("Pick at least one friend")
+    conn = get_db()
+    in_call = [
+        row["user_id"]
+        for row in conn.execute(
+            "SELECT user_id FROM call_participants WHERE call_id = ? AND state = 'joined' AND user_id != ?",
+            (call_id, me["id"]),
+        )
+    ]
+    added = []
+    for username in usernames:
+        other = find_user_by_name(username) if isinstance(username, str) else None
+        if other is None or not are_friends(me["id"], other["id"]):
+            return error(f"{username} is not your friend")
+        if other["id"] != me["id"] and other["id"] not in in_call and other["id"] not in added:
+            added.append(other["id"])
+    if not added:
+        return error("These people are already in the call")
+    member_ids = in_call + added
+    if len(member_ids) + 1 > MAX_GROUP_MEMBERS:
+        return error(f"A group can have at most {MAX_GROUP_MEMBERS} members")
+    names = [display_name(me)] + [
+        display_name(conn.execute("SELECT * FROM users WHERE id = ?", (uid,)).fetchone()) for uid in member_ids
+    ]
+    name = ", ".join(names)
+    if len(name) > 64:
+        name = name[:61].rstrip(", ") + "…"
+    with db.write_transaction(conn):
+        end_call(conn, call["id"])
+        chat_id = create_group(conn, me, name, member_ids)
+        new_call_id = start_call(conn, chat_id, me["id"])
+    new_call = conn.execute("SELECT * FROM calls WHERE id = ?", (new_call_id,)).fetchone()
+    return ok(chat_id=chat_id, call=serialize_call(conn, new_call, me["id"]))
 
 
 @app.route("/api/calls/ice")

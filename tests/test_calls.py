@@ -132,3 +132,52 @@ def test_ice_servers(alice_bob, monkeypatch):
     assert len(turn["urls"]) == 2 and turn["username"].endswith(":" + alice.user_id)
     expected = base64.b64encode(hmac.new(b"s3cret", turn["username"].encode(), hashlib.sha1).digest()).decode()
     assert turn["credential"] == expected
+
+
+def last_system(client, chat_id):
+    messages = client.get(f"/api/chats/{chat_id}/messages").json["messages"]
+    return [m["payload"] for m in messages if m["kind"] == "system"][-1]
+
+
+def test_call_messages_in_the_chat(alice_bob):
+    alice, bob = alice_bob
+    chat_id = dm(alice)
+    call = alice.post(f"/api/chats/{chat_id}/call").json["call"]
+    alice.post(f"/api/calls/{call['id']}/leave")
+    assert last_system(bob, chat_id) == {"event": "call", "actor": "alice", "seconds": None}
+    call = alice.post(f"/api/chats/{chat_id}/call").json["call"]
+    bob.post(f"/api/calls/{call['id']}/answer")
+    bob.post(f"/api/calls/{call['id']}/leave")
+    answered = last_system(alice, chat_id)
+    assert answered["event"] == "call" and answered["seconds"] == 0
+
+
+def test_adding_people_makes_a_group_and_calls_it(make_client):
+    alice = user(make_client, "alice")
+    bob = user(make_client, "bob")
+    carol = user(make_client, "carol")
+    dave = user(make_client, "dave")
+    for other, name in ((bob, "bob"), (carol, "carol")):
+        alice.post("/api/friends/request", json={"username": name})
+        other.post("/api/friends/accept", json={"username": "alice"})
+    chat_id = alice.post("/api/chats", json={"type": "dm", "username": "bob"}).json["chat_id"]
+    call = alice.post(f"/api/chats/{chat_id}/call").json["call"]
+    bob.post(f"/api/calls/{call['id']}/answer")
+
+    # Only friends can be added, and only while you are in the call.
+    assert alice.post(f"/api/calls/{call['id']}/add", json={"usernames": ["dave"]}).status_code == 400
+    assert alice.post(f"/api/calls/{call['id']}/add", json={"usernames": ["bob"]}).status_code == 400
+    assert dave.post(f"/api/calls/{call['id']}/add", json={"usernames": ["carol"]}).status_code == 404
+
+    res = bob.post(f"/api/calls/{call['id']}/add", json={"usernames": ["alice"]})
+    assert res.status_code == 400  # Alice is already in the call
+    res = alice.post(f"/api/calls/{call['id']}/add", json={"usernames": ["carol"]}).json
+    group = alice.get(f"/api/chats/{res['chat_id']}").json["chat"]
+    assert group["type"] == "group" and group["name"] == "alice, bob, carol"
+    assert {m["username"] for m in group["members"]} == {"alice", "bob", "carol"}
+    # The old call is over, the group rings with Alice as the caller.
+    assert res["call"]["started_by"] == alice.user_id
+    assert states(res["call"]) == {"alice": "joined", "bob": "ringing", "carol": "ringing"}
+    assert [c["id"] for c in bob.get("/api/calls").json["calls"]] == [res["call"]["id"]]
+    assert [c["chat_id"] for c in carol.get("/api/calls").json["calls"]] == [res["chat_id"]]
+    assert last_system(bob, chat_id)["event"] == "call"
