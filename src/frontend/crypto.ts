@@ -507,6 +507,45 @@ const SeresCrypto = (() => {
     return { iv: toB64(iv), k: toB64(wrapped) };
   }
 
+  // ------------------------------------------------------------------ calls
+  // The audio of a call is encrypted by WebRTC (DTLS-SRTP). Its connection
+  // offer contains the fingerprint of that encryption; signing it with the
+  // account key means the server can't swap in its own and listen in.
+
+  function callSigningInput(callId: string, fromId: string, toId: string, kind: string, sdp: string) {
+    return encoder.encode(["seres-call-v1", callId, fromId, toId, kind, sdp].join("\n"));
+  }
+
+  async function signCall(identity: SeresIdentity, callId: string, toId: string, kind: string, sdp: string) {
+    const sig = await subtle.sign(
+      { name: "ECDSA", hash: "SHA-256" },
+      identity.signPriv,
+      callSigningInput(callId, identity.userId, toId, kind, sdp),
+    );
+    return toB64(sig);
+  }
+
+  async function verifyCall(
+    fromPubSign: string,
+    callId: string,
+    fromId: string,
+    toId: string,
+    kind: string,
+    sdp: string,
+    sig: string,
+  ): Promise<boolean> {
+    try {
+      return await subtle.verify(
+        { name: "ECDSA", hash: "SHA-256" },
+        await importSignPublic(fromPubSign),
+        fromB64(sig),
+        callSigningInput(callId, fromId, toId, kind, sdp),
+      );
+    } catch {
+      return false;
+    }
+  }
+
   // ----------------------------------------------------------- backup codes
   // Each code looks like "K7QF-2M9X-HP4C-ZT8B". The first group is a public
   // "slot" so the server can find the code; all 16 characters (80 bits) go
@@ -608,6 +647,8 @@ const SeresCrypto = (() => {
     encryptMessage,
     decryptMessage,
     shareMessageKey,
+    signCall,
+    verifyCall,
   };
 })();
 
