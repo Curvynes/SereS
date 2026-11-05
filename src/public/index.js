@@ -256,6 +256,12 @@
         for (const user of data.users)
             userKeys.set(user.id, user);
     }
+    function callLength(seconds) {
+        const h = Math.floor(seconds / 3600);
+        const m = Math.floor((seconds % 3600) / 60);
+        const s = String(seconds % 60).padStart(2, "0");
+        return h ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
+    }
     function systemText(payload) {
         if (!payload)
             return "";
@@ -273,6 +279,10 @@
                     target: payload.target ?? "",
                     name: payload.name ?? "",
                 });
+            case "call":
+                return typeof payload.seconds === "number"
+                    ? t("system.call", { actor: payload.actor ?? "", time: callLength(payload.seconds) })
+                    : t("system.callMissed", { actor: payload.actor ?? "" });
             case "disappearing":
                 return payload.seconds
                     ? t("system.disappearingOn", { actor: payload.actor ?? "", time: disappearLabel(payload.seconds) })
@@ -806,6 +816,7 @@
         const opened = current;
         $("pinned-bar").classList.add("modal-hidden");
         $("search-btn").classList.remove("modal-hidden");
+        $("call-btn").classList.remove("modal-hidden");
         document.querySelectorAll(".chat-list-item").forEach((item) => {
             item.classList.toggle("active", item.dataset.chatid === chatId);
         });
@@ -859,6 +870,7 @@
         $("message-input-field").value = "";
         $("pinned-bar").classList.add("modal-hidden");
         $("search-btn").classList.add("modal-hidden");
+        $("call-btn").classList.add("modal-hidden");
         $("jump-bottom").classList.add("modal-hidden");
         $("typing-bubble").classList.add("modal-hidden");
         current = null;
@@ -893,6 +905,7 @@
         opened.changedKeys = changed;
         opened.missingKeys = missing;
         $("current-chat-name").textContent = details.name;
+        $("call-btn").classList.toggle("modal-hidden", !!details.blocked);
         opened.subtitle =
             details.type === "group"
                 ? t("chat.groupSub", { count: details.member_count })
@@ -2324,6 +2337,39 @@
     function checkedUsernames(container) {
         return [...container.querySelectorAll("input[type=checkbox]:checked")].map((box) => box.value);
     }
+    // Closes an earlier pick that was dismissed without a button (e.g. Escape).
+    let endCallPick = null;
+    /** Friends to add to a call (picked in a dialog), or null when cancelled. */
+    function pickCallPeople(excludeIds) {
+        endCallPick?.();
+        const list = $("call-add-list");
+        $("warning-call-add").textContent = "";
+        friendCheckboxes(list, new Set(excludeIds));
+        openModal("call-add-modal");
+        return new Promise((resolve) => {
+            const finish = (result) => {
+                endCallPick = null;
+                $("call-add-modal").classList.add("modal-hidden");
+                confirm.removeEventListener("click", onConfirm);
+                cancel.removeEventListener("click", onCancel);
+                resolve(result);
+            };
+            const onConfirm = () => {
+                const usernames = checkedUsernames(list);
+                if (!usernames.length) {
+                    $("warning-call-add").textContent = t("newChat.pickOne");
+                    return;
+                }
+                finish(usernames);
+            };
+            const onCancel = () => finish(null);
+            endCallPick = onCancel;
+            const confirm = $("confirm-call-add");
+            const cancel = $("cancel-call-add");
+            confirm.addEventListener("click", onConfirm);
+            cancel.addEventListener("click", onCancel);
+        });
+    }
     function openNewChatModal() {
         const list = $("new-chat-list");
         const nameInput = $("new-chat-name");
@@ -3151,6 +3197,10 @@
             picker.value = "";
         });
         $("search-btn").addEventListener("click", openSearch);
+        $("call-btn").addEventListener("click", () => {
+            if (current)
+                SeresCalls.start(current.id);
+        });
         $("search-input").addEventListener("input", onSearchInput);
         $("search-input").addEventListener("keydown", (event) => {
             const key = event.key;
@@ -3397,6 +3447,23 @@
             window.history.replaceState({}, document.title, window.location.pathname);
             showInvite(pendingInvite);
         }
+        SeresCalls.init({
+            api,
+            post,
+            me: () => me,
+            identity: () => identity,
+            showAlert,
+            errorText,
+            pickPeople: pickCallPeople,
+            chatCreated: () => {
+                chatsSignature = "";
+                loadChats().catch(() => { });
+            },
+            openChat: (chatId) => {
+                if (current?.id !== chatId)
+                    openChat(chatId);
+            },
+        });
         window.setInterval(() => {
             if (document.visibilityState === "visible")
                 syncCurrent().catch(() => { });

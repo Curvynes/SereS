@@ -89,6 +89,7 @@
           <span id="current-chat-name">Welcome</span>
           <span id="current-chat-sub" class="chat-subtitle"></span>
         </div>
+        <button class="header-icon-button modal-hidden" type="button" id="call-btn" title="Call" data-i18n-title="call.start">📞</button>
         <button class="header-icon-button modal-hidden" type="button" id="search-btn" title="Search in chat" data-i18n-title="search.open">🔍</button>
         <button class="header-icon-button modal-hidden" type="button" id="chat-info-btn" title="Chat info" data-i18n-title="app.chatInfo">ⓘ</button>
       </div>
@@ -218,6 +219,20 @@
         <div class="modal-buttons">
           <button class="modal-btn cancel-btn" type="button" data-close-modal data-i18n="common.cancel">Cancel</button>
           <button class="modal-btn confirm-btn" type="button" id="confirm-new-chat" data-i18n="newChat.start">Start chat</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Add people to a call: they and everyone in the call become a new group -->
+    <div class="modal-overlay modal-hidden" id="call-add-modal">
+      <div class="modal-box">
+        <h3 data-i18n="call.addTitle">Add people to the call</h3>
+        <p data-i18n="call.addText">You get a new group with everyone in the call and the people you pick. The call moves there and you call everyone.</p>
+        <div class="picker-list" id="call-add-list"></div>
+        <h4 class="modal-warning" id="warning-call-add"></h4>
+        <div class="modal-buttons">
+          <button class="modal-btn cancel-btn" type="button" id="cancel-call-add" data-i18n="common.cancel">Cancel</button>
+          <button class="modal-btn confirm-btn" type="button" id="confirm-call-add" data-i18n="call.addConfirm">Add and call</button>
         </div>
       </div>
     </div>
@@ -390,6 +405,7 @@
     <script src="crypto.js"></script>
     <script src="codes.js"></script>
     <script src="passkeys.js"></script>
+    <script src="calls.js"></script>
     <script src="index.js"></script>
   </body>
 </html>
