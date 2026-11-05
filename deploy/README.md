@@ -13,10 +13,12 @@ What it does (everything that is already there is kept):
 1. installs Python 3 + venv, git and curl with `apt`
 2. installs Node.js 22 with npm (NodeSource) if there is no Node.js 18 or newer, then `pm2`
 3. clones SereS to `~/SereS` – or, if SereS is already there, updates it with `git pull`
+   (changes made by hand, e.g. mail settings in `.env`, are kept)
 4. creates `.venv` and installs `requirements.txt` and `gunicorn`
-5. writes `ecosystem.config.js` (gunicorn with `--preload`, on `127.0.0.1` and `::1`) and starts
-   SereS with pm2
-6. sets up `pm2 startup`, so SereS starts again after a reboot, and checks that it answers
+5. installs **coturn**, the TURN server for voice calls, and writes `/etc/turnserver.conf`
+6. writes `ecosystem.config.js` (gunicorn with `--preload`, on `127.0.0.1` and `::1`, plus the
+   TURN settings) and starts SereS with pm2
+7. sets up `pm2 startup`, so SereS starts again after a reboot, and checks that it answers
 
 | Option | Meaning |
 | --- | --- |
@@ -24,6 +26,8 @@ What it does (everything that is already there is kept):
 | `--workers` | Number of gunicorn workers, default `4` |
 | `--public-url` | Address of SereS, for the links in mails and for passkeys |
 | `--rp-id` | Domain for passkeys, e.g. `seres-chat.com` (works for all subdomains) |
+| `--turn-host` | Public address of the TURN server, default: the server's public IPv4 |
+| `--no-turn` | Don't set up a TURN server |
 | `--dir` | Where SereS is installed, default `~/SereS` |
 | `--branch` | Git branch for a new download, default `main` |
 | `--name` | Name in pm2, default `SereS` |
@@ -31,8 +35,23 @@ What it does (everything that is already there is kept):
 | `--no-ipv6` | Only listen on `127.0.0.1` |
 | `--no-startup` | Don't start SereS automatically after a reboot |
 
-**Update:** run `~/SereS/deploy/install.sh` again. `--public-url` and `--rp-id` are remembered
-from the last run. If files in the checkout were changed by hand, the `git pull` is skipped.
+**Update:** run `~/SereS/deploy/install.sh` again. It installs only what is missing (e.g. coturn
+on a server set up before voice calls existed) and keeps the port, `--public-url`, `--rp-id` and
+the TURN server from the last run.
+
+### Voice calls: open the TURN ports
+
+Calls go directly between the browsers. In some networks (mobile data, company Wi-Fi) that isn't
+possible; then the audio goes through the TURN server, still encrypted end-to-end. It does **not**
+go through the Cloudflare tunnel, so open these ports in your hoster's firewall (netcup: SCP →
+server → Firewall) and in `ufw`, if you use it:
+
+| Protocol | Port |
+| --- | --- |
+| TCP + UDP | `3478` |
+| UDP | `49160-49200` |
+
+The config only relays to the internet, never to this server or private networks.
 
 ---
 

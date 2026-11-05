@@ -88,8 +88,9 @@ Optional environment variables: `PORT`, `HOST`, `SERES_DEBUG=1` (never in produc
 
 ## 🖥️ Install on a server (Ubuntu / Debian)
 
-One script installs everything that is missing (Python + venv, git, Node.js + npm, pm2),
-downloads SereS, sets up the venv and keeps SereS running with pm2, also after a reboot:
+One script installs everything that is missing (Python + venv, git, Node.js + npm, pm2, the
+TURN server for calls), downloads SereS, sets up the venv and keeps SereS running with pm2, also
+after a reboot:
 
 ```bash
 curl -fsSLO https://raw.githubusercontent.com/SereSChat/SereS/main/deploy/install.sh
@@ -98,10 +99,22 @@ bash install.sh --public-url https://beta.seres-chat.com --rp-id seres-chat.com
 
 Run it as the user SereS should run as (it asks for `sudo`). SereS then listens on
 `http://localhost:2222`; point your Cloudflare tunnel or reverse proxy there. To update
-later, run `~/SereS/deploy/install.sh` again: it pulls the newest version and restarts SereS.
-All options: [deploy/README.md](deploy/README.md).
+later, run `~/SereS/deploy/install.sh` again: it pulls the newest version, installs what is
+new and restarts SereS. All options and the ports for calls: [deploy/README.md](deploy/README.md).
 
 ---
+
+## 📞 Voice calls (browser)
+
+- The 📞 button in a chat calls everyone in it; the others get a ringing card with *Answer* and
+  *Decline*. In the call: mute, hang up and **add people**. Adding people creates a new group with
+  everyone in the call and the added friends; the call moves there and you call everyone.
+- The audio goes directly between the browsers (WebRTC, always encrypted). In a group everyone is
+  connected with everyone, which works well for small groups. The connection offers are signed
+  with the account keys, so the server can't listen in. When a direct connection isn't possible,
+  the TURN server relays the encrypted audio (`TURN_URLS` / `TURN_SECRET`, set up by `install.sh`).
+- Calls need `https://` (or `localhost`) because browsers only allow the microphone there. Calls
+  only ring while SereS is open in a browser tab.
 
 ## 🔒 How the end-to-end encryption works
 
