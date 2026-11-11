@@ -3675,6 +3675,29 @@
   }
 
   function bindEvents() {
+    const resizer = $("pane-resizer");
+    const savedWidth = Number(localStorage.getItem("seres-sidebar-width")) || 450;
+    document.documentElement.style.setProperty("--sidebar-width", `${Math.min(640, Math.max(340, savedWidth))}px`);
+    const resizeAt = (clientX: number) => {
+      const width = Math.min(640, Math.max(340, clientX - 18 - 72));
+      document.documentElement.style.setProperty("--sidebar-width", `${width}px`);
+      resizer.setAttribute("aria-valuenow", String(width));
+      localStorage.setItem("seres-sidebar-width", String(width));
+    };
+    resizer.addEventListener("pointerdown", (event) => {
+      resizer.setPointerCapture(event.pointerId);
+      resizeAt(event.clientX);
+    });
+    resizer.addEventListener("pointermove", (event) => {
+      if (resizer.hasPointerCapture(event.pointerId)) resizeAt(event.clientX);
+    });
+    resizer.addEventListener("keydown", (event) => {
+      if (!["ArrowLeft", "ArrowRight"].includes((event as KeyboardEvent).key)) return;
+      event.preventDefault();
+      const delta = (event as KeyboardEvent).key === "ArrowLeft" ? -20 : 20;
+      const currentWidth = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--sidebar-width"), 10) || 450;
+      resizeAt(currentWidth + delta + 72 + 18);
+    });
     $("btn-add-friend").addEventListener("click", () => {
       $("warning-add-friend").textContent = "";
       openModal("add-friend-modal");
