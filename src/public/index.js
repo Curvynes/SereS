@@ -143,7 +143,7 @@
         avatar.style.backgroundColor = colorFor(name);
         const initial = h("span", { text: options.group ? "#" : (options.label || name).charAt(0).toUpperCase() || "?" });
         avatar.appendChild(initial);
-        if (options.group && options.groupId) {
+        if (options.group && options.groupId && options.avatarUpdatedAt) {
             const img = h("img", { attrs: { alt: "" } });
             img.style.display = "none";
             img.addEventListener("load", () => { img.style.display = "block"; initial.style.display = "none"; });
@@ -2468,6 +2468,21 @@
             if (details.role === "owner") {
                 const input = h("input", { attrs: { type: "file", accept: "image/png,image/jpeg,image/gif,image/webp" } });
                 picture.appendChild(input);
+                if (details.avatar_updated_at)
+                    picture.appendChild(button(t("groupPicture.remove"), "pill-btn secondary", async () => {
+                        try {
+                            const response = await fetch(`/api/chats/${encodeURIComponent(details.id)}/avatar`, { method: "DELETE", credentials: "same-origin" });
+                            const result = await response.json();
+                            if (!response.ok)
+                                throw new Error(result.error || result.message || "Remove failed");
+                            chatsSignature = "";
+                            await loadChats();
+                            await openChatInfo();
+                        }
+                        catch (error) {
+                            showAlert(errorText(error));
+                        }
+                    }));
                 picture.appendChild(button(t("settings.uploadButton"), "pill-btn secondary", async () => {
                     if (!input.files?.[0]) {
                         showAlert(t("settings.chooseFile"));

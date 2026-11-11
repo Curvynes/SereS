@@ -73,6 +73,7 @@ window.SeresLang.fr = {
   "settings.title": "⚙️ Paramètres",
   "settings.avatarText": "Photo de profil (PNG, JPG, GIF ou WebP, 2 Mo max.) :",
   "settings.uploadButton": "Envoyer la photo",
+  "groupPicture.remove": "Supprimer la photo du groupe",
   "settings.designText": "Apparence :",
   "settings.themeButton": "🌓 Basculer clair/sombre",
   "settings.languageText": "Langue :",

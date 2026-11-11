@@ -73,6 +73,7 @@ window.SeresLang.de = {
   "settings.title": "⚙️ Einstellungen",
   "settings.avatarText": "Profilbild (PNG, JPG, GIF oder WebP, max. 2MB):",
   "settings.uploadButton": "Bild hochladen",
+  "groupPicture.remove": "Gruppenbild entfernen",
   "settings.designText": "App-Design:",
   "settings.themeButton": "🌓 Hell/Dunkel wechseln",
   "settings.languageText": "Sprache:",

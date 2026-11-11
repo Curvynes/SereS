@@ -1438,8 +1438,23 @@ def upload_group_avatar(chat_id):
     os.makedirs(os.path.dirname(group_avatar_path(chat_id)), exist_ok=True)
     image.save(group_avatar_path(chat_id), "PNG")
     conn = get_db()
-    conn.execute("UPDATE chats SET avatar_updated_at = ? WHERE id = ?", (db.now_iso(), chat_id))
+    conn.execute("UPDATE chats SET avatar_updated_at = ? WHERE id = ?", (uuid.uuid4().hex, chat_id))
+    conn.commit()
     return ok(message="Group picture uploaded")
+
+
+@app.route("/api/chats/<chat_id>/avatar", methods=["DELETE"])
+@login_required
+def delete_group_avatar(chat_id):
+    chat = require_membership(chat_id)
+    require_group(chat, owner_only=True)
+    path = group_avatar_path(chat_id)
+    if os.path.exists(path):
+        os.remove(path)
+    conn = get_db()
+    conn.execute("UPDATE chats SET avatar_updated_at = NULL WHERE id = ?", (chat_id,))
+    conn.commit()
+    return ok(message="Group picture removed")
 
 
 @app.route("/api/upload_avatar", methods=["POST"])
@@ -2419,6 +2434,9 @@ def leave_chat(conn, chat, user):
     conn.execute("DELETE FROM chat_members WHERE chat_id = ? AND user_id = ?", (chat_id, user["id"]))
     remaining = chat_members(chat_id)
     if not remaining:
+        picture = group_avatar_path(chat_id)
+        if os.path.exists(picture):
+            os.remove(picture)
         for row in conn.execute("SELECT id FROM files WHERE chat_id = ?", (chat_id,)).fetchall():
             remove_file_blob(row["id"])
         conn.execute("DELETE FROM files WHERE chat_id = ?", (chat_id,))

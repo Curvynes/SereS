@@ -73,6 +73,7 @@ window.SeresLang.en = {
   "settings.title": "⚙️ Settings",
   "settings.avatarText": "Profile picture (PNG, JPG, GIF or WebP, max 2MB):",
   "settings.uploadButton": "Upload picture",
+  "groupPicture.remove": "Remove group picture",
   "settings.designText": "App design:",
   "settings.themeButton": "🌓 Switch Light/Dark Mode",
   "settings.languageText": "Language:",
