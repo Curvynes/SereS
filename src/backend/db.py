@@ -286,7 +286,7 @@ EXTRA_COLUMNS = {
         "expires_at": "TEXT",
     },
     # Disappearing messages timer of the chat, 0 = off.
-    "chats": {"disappear_seconds": "INTEGER NOT NULL DEFAULT 0"},
+    "chats": {"disappear_seconds": "INTEGER NOT NULL DEFAULT 0", "avatar_updated_at": "TEXT"},
 }
 
 

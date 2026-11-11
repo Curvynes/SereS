@@ -1400,6 +1400,48 @@ def get_user_avatar(username):
     return send_avatar(other["id"])
 
 
+def group_avatar_path(chat_id):
+    return os.path.join(DATA_DIR, "group_avatars", chat_id + ".png")
+
+
+@app.route("/api/chats/<chat_id>/avatar")
+@login_required
+def get_group_avatar(chat_id):
+    chat = require_membership(chat_id)
+    if chat["type"] != "group":
+        return error("Only groups have group pictures", 404)
+    path = group_avatar_path(chat_id)
+    if not os.path.exists(path):
+        return error("No avatar uploaded", 404)
+    return flask.send_file(path, mimetype="image/png", max_age=300)
+
+
+@app.route("/api/chats/<chat_id>/avatar", methods=["POST"])
+@login_required
+def upload_group_avatar(chat_id):
+    chat = require_membership(chat_id)
+    require_group(chat, owner_only=True)
+    file = flask.request.files.get("avatar_img")
+    if file is None or not file.filename:
+        return error("No selected file")
+    raw = file.read(MAX_AVATAR_BYTES + 1)
+    if len(raw) > MAX_AVATAR_BYTES:
+        return error("File size exceeds 2MB limit")
+    try:
+        image = Image.open(io.BytesIO(raw))
+        if image.width * image.height > 40_000_000:
+            return error("Image is too large")
+        image = image.convert("RGBA")
+        image.thumbnail((512, 512))
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
+        return error("Wrong filetype (png, jpg, gif or webp)")
+    os.makedirs(os.path.dirname(group_avatar_path(chat_id)), exist_ok=True)
+    image.save(group_avatar_path(chat_id), "PNG")
+    conn = get_db()
+    conn.execute("UPDATE chats SET avatar_updated_at = ? WHERE id = ?", (db.now_iso(), chat_id))
+    return ok(message="Group picture uploaded")
+
+
 @app.route("/api/upload_avatar", methods=["POST"])
 @login_required
 def upload_avatar():
@@ -1881,6 +1923,7 @@ def chat_summary(chat, me_id):
         "chat": chat["id"],
         "type": chat["type"],
         "name": chat["name"],
+        "avatar_updated_at": chat["avatar_updated_at"],
         "role": chat["role"],
         "member_count": len(members),
         "last_message": serialize_message(last) if last else None,

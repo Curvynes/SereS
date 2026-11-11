@@ -143,7 +143,15 @@
         avatar.style.backgroundColor = colorFor(name);
         const initial = h("span", { text: options.group ? "#" : (options.label || name).charAt(0).toUpperCase() || "?" });
         avatar.appendChild(initial);
-        if (!options.group && avatarState.get(name) !== "no") {
+        if (options.group && options.groupId) {
+            const img = h("img", { attrs: { alt: "" } });
+            img.style.display = "none";
+            img.addEventListener("load", () => { img.style.display = "block"; initial.style.display = "none"; });
+            img.addEventListener("error", () => img.remove());
+            img.src = `/api/chats/${encodeURIComponent(options.groupId)}/avatar?v=${encodeURIComponent(options.avatarUpdatedAt || "0")}`;
+            avatar.appendChild(img);
+        }
+        else if (!options.group && avatarState.get(name) !== "no") {
             const img = h("img", { attrs: { alt: "" } });
             img.style.display = "none";
             img.addEventListener("load", () => {
@@ -481,7 +489,7 @@
                 attrs: { "data-chatid": chat.id },
             });
             const avatarName = chat.type === "dm" && chat.other_user ? chat.other_user : chat.name;
-            item.appendChild(avatarEl(avatarName, { group: chat.type === "group", label: chat.name }));
+            item.appendChild(avatarEl(avatarName, { group: chat.type === "group", groupId: chat.type === "group" ? chat.id : undefined, avatarUpdatedAt: chat.avatar_updated_at, label: chat.name }));
             const nameRow = h("div", { className: "item-row" }, [
                 h("span", { className: "item-name" }, [
                     document.createTextNode(chat.name),
@@ -2071,7 +2079,7 @@
             const checkbox = h("input", { attrs: { type: "checkbox", value: chat.id } });
             list.appendChild(h("label", { className: "picker-item" }, [
                 checkbox,
-                avatarEl(chat.type === "dm" && chat.other_user ? chat.other_user : chat.name, { group: chat.type === "group", label: chat.name }),
+                avatarEl(chat.type === "dm" && chat.other_user ? chat.other_user : chat.name, { group: chat.type === "group", groupId: chat.type === "group" ? chat.id : undefined, avatarUpdatedAt: chat.avatar_updated_at, label: chat.name }),
                 h("span", { className: "item-name", text: chat.name }),
             ]));
         }
@@ -2453,6 +2461,37 @@
         const body = $("chat-info-body");
         body.textContent = "";
         $("chat-info-title").textContent = details.name;
+        if (details.type === "group") {
+            const picture = h("div", { className: "group-picture-settings" }, [
+                avatarEl(details.name, { group: true, groupId: details.id, avatarUpdatedAt: details.avatar_updated_at, className: "avatar profile-avatar", label: details.name }),
+            ]);
+            if (details.role === "owner") {
+                const input = h("input", { attrs: { type: "file", accept: "image/png,image/jpeg,image/gif,image/webp" } });
+                picture.appendChild(input);
+                picture.appendChild(button(t("settings.uploadButton"), "pill-btn secondary", async () => {
+                    if (!input.files?.[0]) {
+                        showAlert(t("settings.chooseFile"));
+                        return;
+                    }
+                    const form = new FormData();
+                    form.append("avatar_img", input.files[0]);
+                    try {
+                        const response = await fetch(`/api/chats/${encodeURIComponent(details.id)}/avatar`, { method: "POST", body: form, credentials: "same-origin" });
+                        const result = await response.json();
+                        if (!response.ok)
+                            throw new Error(result.error || result.message || "Upload failed");
+                        chatsSignature = "";
+                        await loadChats();
+                        await refreshCurrentDetails();
+                        await openChatInfo();
+                    }
+                    catch (error) {
+                        showAlert(errorText(error));
+                    }
+                }));
+            }
+            body.appendChild(picture);
+        }
         const myFp = await SeresCrypto.fingerprint(identity.pubEcdh, identity.pubSign);
         const verified = readStore("verified");
         const members = details.members || [];
