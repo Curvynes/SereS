@@ -4176,6 +4176,10 @@ body.bright-body {
 body:not(.bright-body) .app-rail { background: var(--ui-main-surface); border-color: var(--ui-border); }
 body:not(.bright-body) .rail-nav.active,
 body:not(.bright-body) .rail-nav:hover { background: var(--ui-hover-surface); }
+body.bright-body .app-rail { background: var(--ui-raised-surface); border-color: var(--ui-border); }
+body.bright-body .rail-nav { color: var(--ui-muted); }
+body.bright-body .rail-nav.active,
+body.bright-body .rail-nav:hover { background: var(--ui-hover-surface); color: var(--ui-text); }
 
 .user-menu-container,
 .user-menu-container.bright-user-menu-container {
@@ -4268,8 +4272,8 @@ body:not(.bright-body) .rail-nav:hover { background: var(--ui-hover-surface); }
   width: 42px;
   height: 42px;
   border-radius: 12px;
-  background: var(--ui-accent) !important;
-  color: #fff !important;
+  background: transparent !important;
+  color: var(--ui-text) !important;
 }
-.add-dm-button:hover { background: #607f7a !important; color: #fff !important; }
+.add-dm-button:hover { background: var(--ui-hover-surface) !important; color: var(--ui-text) !important; }
 .add-dm-button .material-symbols-rounded { color: inherit; }
