@@ -2163,7 +2163,9 @@
       showAlert(t("schedule.textOnly"));
       return;
     }
-    const when = window.prompt(t("schedule.when"), new Date(Date.now() + 3600000).toLocaleString());
+    const defaultTime = new Date(Date.now() + 3600000);
+    const localTime = new Date(defaultTime.getTime() - defaultTime.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    const when = window.prompt(t("schedule.when"), localTime);
     if (!when) return;
     const date = new Date(when);
     if (!Number.isFinite(date.getTime()) || date.getTime() < Date.now() + 60000) {

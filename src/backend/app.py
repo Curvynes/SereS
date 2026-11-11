@@ -2203,6 +2203,8 @@ def scheduled_messages(chat_id):
         return error(problem, 409 if "members" in problem else 400)
     if conn.execute("SELECT COUNT(*) FROM scheduled_messages WHERE sender_id = ?", (me["id"],)).fetchone()[0] >= 100:
         return error("Too many scheduled messages")
+    if conn.execute("SELECT 1 FROM messages WHERE id = ?", (message_id,)).fetchone():
+        return error("Duplicate message id", 409)
     try:
         conn.execute(
             "INSERT INTO scheduled_messages (id, chat_id, sender_id, payload, member_ids, sender_sign_key, send_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
