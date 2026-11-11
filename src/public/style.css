@@ -4029,7 +4029,7 @@ body.bright-body .call-tile-muted {
     background: #242424;
     border-right: 1px solid #363636;
   }
-  .sidebar-header { height: 88px; padding: 0 28px; background: #242424; border: 0; font-size: 1.45rem; }
+  .sidebar-header { display: none; }
   .sidebar-header > span { display: none; }
   .list-view-switcher { display: none; }
   .chat-section-header { padding: 10px 28px 12px; font-size: 1.45rem; text-transform: none; color: #ededed; letter-spacing: 0; }
@@ -4073,6 +4073,7 @@ body:not(.bright-body) .list-item.active, body:not(.bright-body) .list-item:hove
 .list-view-toggle.active, .poll-option.selected { background-color: var(--calm-accent-strong); border-color: var(--calm-accent-strong); }
 .modal-overlay { overflow: hidden; }
 #settings-modal .modal-box { width: min(720px, calc(100vw - 32px)); max-height: min(88vh, 900px); overflow-y: auto; scrollbar-width: none; overscroll-behavior: contain; padding: 28px; border: 1px solid #3b4545; border-radius: 20px; background: #222929 !important; gap: 18px; }
+#settings-modal .modal-box { background: #3a4444 !important; border-color: #65706e; }
 #settings-modal .modal-box { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; }
 #settings-modal .modal-box > h3 { grid-column: 1 / -1; position: sticky; top: -28px; z-index: 2; margin: -28px -28px 0; padding: 22px 28px 12px; background: inherit; }
 #settings-modal .settings-section { min-width: 0; }
@@ -4081,15 +4082,28 @@ body:not(.bright-body) .list-item.active, body:not(.bright-body) .list-item:hove
 #settings-modal .settings-section input[type="file"] { font-size: .78rem; }
 #settings-modal .modal-box::-webkit-scrollbar { display: none; }
 #settings-modal .settings-section { padding: 16px; border: 1px solid #384141; border-radius: 14px; background: #282f30; }
+#settings-modal .settings-section { background: #444f4f; border-color: #616d6b; }
 #settings-modal .settings-section > p:first-child { color: #dce3e1 !important; font-size: .95rem; font-weight: 600; }
 #settings-modal .secondary-btn, #settings-modal .modal-btn.secondary-btn { border-color: #465554; background: #343e3e; color: #e5ebea; }
 #settings-modal .secondary-btn:hover, #settings-modal .modal-btn.secondary-btn:hover { background: #3e4a49; }
 #settings-modal input, #settings-modal .language-select { border-color: #465554 !important; background: #303838 !important; color: #e5ebea !important; }
 #settings-modal input:focus, #settings-modal .language-select:focus { border-color: var(--calm-accent) !important; }
+#settings-modal .language-select { width: 100%; min-height: 50px; padding: 12px 16px; border-radius: 12px; font-size: 1rem; }
+#settings-modal > .modal-box > .modal-buttons { justify-content: center; grid-column: 1 / -1; }
+#settings-modal > .modal-box > .modal-buttons .modal-btn { min-width: 140px; }
+#settings-modal > .modal-box > .modal-buttons .cancel-btn { background: #343e3e !important; color: #e5ebea !important; border: 1px solid #53615f !important; }
+#settings-modal > .modal-box > .modal-buttons .cancel-btn:hover { background: #3e4a49 !important; }
+body.bright-body #settings-modal .modal-box { background: #f4f7f6 !important; }
+body.bright-body #settings-modal .settings-section { background: #e9efed; border-color: #d1dcda; }
+body.bright-body #settings-modal .secondary-btn, body.bright-body #settings-modal .modal-btn.secondary-btn { background: #f8faf9; }
 body.bright-body #settings-modal .modal-box { background: #f6f8f7 !important; border-color: #dce5e2; }
 body.bright-body #settings-modal .settings-section { background: #fff; border-color: #e1e8e6; }
 body.bright-body #settings-modal .settings-section > p:first-child { color: #273333 !important; }
 body.bright-body #settings-modal .secondary-btn, body.bright-body #settings-modal .modal-btn.secondary-btn { background: #edf2f0; color: #24312f; border-color: #d5e0dc; }
+body.bright-body #settings-modal .modal-box { background: #e9efed !important; }
+body.bright-body #settings-modal .settings-section { background: #f4f7f6; }
+body.bright-body #settings-modal > .modal-box > .modal-buttons .cancel-btn { background: #edf2f0 !important; color: #293633 !important; border-color: #d5e0dc !important; }
+body.bright-body #settings-modal > .modal-box > .modal-buttons .cancel-btn:hover { background: #e2eae7 !important; }
 @font-face {
   font-family: 'Material Symbols Rounded';
   font-style: normal;
@@ -4098,6 +4112,25 @@ body.bright-body #settings-modal .secondary-btn, body.bright-body #settings-moda
   src: url('assets/material-symbols-rounded.ttf') format('truetype');
 }
 .material-symbols-rounded { font-family: 'Material Symbols Rounded'; font-weight: normal; font-style: normal; font-size: 24px; line-height: 1; letter-spacing: normal; text-transform: none; display: inline-block; white-space: nowrap; direction: ltr; font-feature-settings: 'liga'; -webkit-font-feature-settings: 'liga'; -webkit-font-smoothing: antialiased; }
+.material-symbols-rounded { vertical-align: middle; flex: 0 0 auto; }
+.rail-nav, .header-icon-button, .input-icon-button, .add-dm-button, .edit-cancel { display: inline-flex; align-items: center; justify-content: center; }
+.modal-box h3, .settings-section button, .dropdown-item, .link-btn, .invite-actions button { display: flex; align-items: center; gap: 10px; }
+.settings-section > p .material-symbols-rounded { margin-right: 6px; }
+.modal-overlay { background: rgba(12, 18, 18, .52); transition: background-color .22s ease; }
+.modal-box, .modal-box input, .modal-box button, .sidebar, .main-chat, .chat-header, .messages-container { transition: background-color .22s ease, border-color .22s ease, color .22s ease; }
+#invite-modal .modal-box, #invite-accept-modal .modal-box { width: min(520px, calc(100vw - 32px)); padding: 28px; border: 1px solid #596665; border-radius: 20px; background: #35403f !important; }
+#invite-modal .invite-link { width: 100%; min-height: 48px; border-radius: 12px; }
+#invite-modal .invite-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+body.bright-body #invite-modal .modal-box, body.bright-body #invite-accept-modal .modal-box { background: #f4f7f6 !important; border-color: #d1dcda; }
+body.bright-body .modal-overlay { background: rgba(30, 43, 40, .32); }
+#cookie-banner { background: #35403f; border: 1px solid #596665; border-radius: 18px; color: #eff3f2; box-shadow: 0 18px 48px #0005; padding: 20px 22px; }
+#cookie-banner .cookie-text { color: #c5d0cd; }
+#cookie-banner .cookie-btn { min-height: 42px; border-radius: 11px; }
+#cookie-banner .cookie-accept { background: #83a9a3; color: #172120; }
+#cookie-banner .cookie-deny { background: #4a5655; color: #eff3f2; }
+body.bright-body #cookie-banner { background: #f4f7f6; border-color: #d1dcda; color: #263331; }
+body.bright-body #cookie-banner .cookie-text { color: #53625f; }
+body.bright-body #cookie-banner .cookie-deny { background: #e2eae7; color: #263331; }
 .request-list-item { min-height: 66px !important; width: calc(100% - 24px) !important; margin: 8px 12px !important; padding: 12px 16px !important; gap: 12px !important; border: 1px solid #394243; background: #272e2f; cursor: default; }
 .request-list-item .avatar { width: 38px !important; height: 38px !important; font-size: .95rem !important; }
 .request-list-item .item-info { margin-left: 0; }
