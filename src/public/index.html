@@ -9,6 +9,15 @@
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
+    <nav class="app-rail" aria-label="Main navigation">
+      <button class="rail-menu" id="menu-toggle" type="button" aria-label="Toggle conversations">☰</button>
+      <button class="rail-nav active" type="button" data-rail-view="chats" aria-label="Chats">●</button>
+      <button class="rail-nav" type="button" data-rail-view="friends" aria-label="Friends">♧</button>
+      <button class="rail-nav" type="button" data-rail-view="requests" aria-label="Requests">▢</button>
+      <span class="rail-spacer"></span>
+      <button class="rail-nav" id="rail-settings" type="button" aria-label="Settings">⚙</button>
+      <div class="avatar rail-avatar" id="rail-avatar"><span>?</span></div>
+    </nav>
     <div class="sidebar">
       <div class="sidebar-header">
         <span>SereS</span>
@@ -80,11 +89,6 @@
 
     <div class="main-chat">
       <div class="chat-header">
-        <button class="menu-toggle" type="button" id="menu-toggle" aria-label="Open sidebar" data-i18n-aria-label="app.openSidebar">
-          <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
-            <path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"></path>
-          </svg>
-        </button>
         <div class="chat-title">
           <span id="current-chat-name">Welcome</span>
           <span id="current-chat-sub" class="chat-subtitle"></span>
