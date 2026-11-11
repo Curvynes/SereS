@@ -37,60 +37,41 @@ Help us refine SereS during the Beta phase! Share your feedback, report bugs, or
 
 ## 🚀 Local Development
 
-If you want to contribute or test the project locally:
+Install the stable Rust toolchain, then start the backend from the repository root:
 
 ```bash
-## Windows:
+cargo run --manifest-path src/backend-rs/Cargo.toml
+```
 
-# 1. Clone the repository
-git clone https://github.com/SereSChat/SereS.git
-cd SereS
+On Windows, run it in WSL; the WebAuthn dependency needs OpenSSL development packages to compile.
+On Debian or Ubuntu, install them with `sudo apt install build-essential pkg-config libssl-dev`.
+The backend serves `src/public/` and stores its SQLite database and uploaded binary data in
+`src/backend/` by default. Set `SERES_DATA_DIR` or
+`SERES_PUBLIC_DIR` to use other paths. If you have a `src/backend/.env`, run from that directory
+so the Rust process loads the existing SMTP and passkey settings:
 
-# 2. python venv
-python -m venv .venv
-./\.venv\Scripts\activate
-
-# 3. Install dependencies
-pip install -r requirements.txt
-
-# 4. Start development server
-python src/backend/app.py
-
-
-## Linux:
-
-# 1. Clone the repository
-git clone https://github.com/SereSChat/SereS.git
-cd SereS
-
-# 2. python venv
-python3 -m venv .venv
-source .venv/bin/activate
-
-# 3. Install dependencies
-pip install -r requirements.txt
-
-# 4. Start development server
-python src/backend/app.py
+```bash
+cd src/backend
+cargo run --manifest-path ../backend-rs/Cargo.toml
 ```
 
 The frontend is written in TypeScript (`src/frontend/`). It is compiled to
 `src/public/` and the compiled `.js` files are committed;
 after changing a `.ts` file run `tsc -p .` in the repository root.
 
-Backend tests: `pip install pytest && python -m pytest tests`
+Format and compile the backend with `cargo fmt --manifest-path src/backend-rs/Cargo.toml` and
+`cargo check --manifest-path src/backend-rs/Cargo.toml`.
 
-Optional environment variables: `PORT`, `HOST`, `SERES_DEBUG=1` (never in production),
-`SERES_DATA_DIR` (where `users.db` and avatars are stored), `SERES_ALLOWED_HOSTS`
+Optional environment variables: `PORT`, `HOST`, `SERES_DATA_DIR` (where `users.db` is stored),
+`SERES_PUBLIC_DIR`, `SERES_ALLOWED_HOSTS`
 (extra hostnames allowed as request `Origin`, comma separated), `URL` (uptime heartbeat).
 
 ---
 
 ## 🖥️ Install on a server (Ubuntu / Debian)
 
-One script installs everything that is missing (Python + venv, git, Node.js + npm, pm2, the
-TURN server for calls), downloads SereS, sets up the venv and keeps SereS running with pm2, also
-after a reboot:
+One script installs Rust, Node.js + npm, pm2, and the TURN server for calls, downloads SereS,
+builds the Rust backend, and keeps it running with pm2, including after a reboot:
 
 ```bash
 curl -fsSLO https://raw.githubusercontent.com/SereSChat/SereS/main/deploy/install.sh
