@@ -2169,6 +2169,102 @@ def validate_envelope(payload, member_ids):
     return None
 
 
+@app.route("/api/chats/<chat_id>/scheduled", methods=["GET", "POST"])
+@login_required
+def scheduled_messages(chat_id):
+    chat = require_membership(chat_id)
+    me = current_user()
+    conn = get_db()
+    if flask.request.method == "GET":
+        rows = conn.execute(
+            "SELECT id, send_at, created_at FROM scheduled_messages WHERE chat_id = ? AND sender_id = ? ORDER BY send_at",
+            (chat_id, me["id"]),
+        ).fetchall()
+        return ok(messages=[dict(row) for row in rows])
+    data = json_body()
+    message_id = str_field(data, "id", 64)
+    try:
+        uuid.UUID(message_id)
+        send_at = datetime.datetime.fromisoformat(data["send_at"].replace("Z", "+00:00"))
+        if send_at.tzinfo is None:
+            raise ValueError()
+    except (ValueError, KeyError, AttributeError, TypeError):
+        return error("Invalid scheduled time or message id")
+    now = datetime.datetime.now(datetime.timezone.utc)
+    send_at = send_at.astimezone(datetime.timezone.utc)
+    if not now + datetime.timedelta(minutes=1) <= send_at <= now + datetime.timedelta(days=365):
+        return error("Schedule between one minute and one year from now")
+    members = chat_members(chat_id)
+    if chat["type"] == "dm" and any(is_blocked_between(me["id"], member["id"]) for member in members if member["id"] != me["id"]):
+        return error("You can't send messages to this chat", 403)
+    member_ids = [member["id"] for member in members]
+    problem = validate_envelope(data.get("payload"), member_ids)
+    if problem:
+        return error(problem, 409 if "members" in problem else 400)
+    if conn.execute("SELECT COUNT(*) FROM scheduled_messages WHERE sender_id = ?", (me["id"],)).fetchone()[0] >= 100:
+        return error("Too many scheduled messages")
+    try:
+        conn.execute(
+            "INSERT INTO scheduled_messages (id, chat_id, sender_id, payload, member_ids, sender_sign_key, send_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (message_id, chat_id, me["id"], json.dumps(data["payload"]), json.dumps(sorted(member_ids)), me["pub_sign"], send_at.strftime("%Y-%m-%dT%H:%M:%SZ"), db.now_iso()),
+        )
+        conn.commit()
+    except sqlite3.IntegrityError:
+        return error("Duplicate message id", 409)
+    return ok(message="Message scheduled", id=message_id)
+
+
+@app.route("/api/chats/<chat_id>/scheduled/<message_id>", methods=["DELETE"])
+@login_required
+def cancel_scheduled_message(chat_id, message_id):
+    require_membership(chat_id)
+    conn = get_db()
+    removed = conn.execute("DELETE FROM scheduled_messages WHERE id = ? AND chat_id = ? AND sender_id = ?", (message_id, chat_id, current_user()["id"]))
+    conn.commit()
+    if not removed.rowcount:
+        return error("Scheduled message not found", 404)
+    return ok(message="Scheduled message cancelled")
+
+
+def deliver_scheduled_messages():
+    """Publish due ciphertext without ever decrypting scheduled content."""
+    while True:
+        try:
+            conn = db.connect(DB)
+            try:
+                with db.write_transaction(conn):
+                    due = conn.execute(
+                        "SELECT * FROM scheduled_messages WHERE send_at <= ? ORDER BY send_at LIMIT 100", (db.now_iso(),)
+                    ).fetchall()
+                    for item in due:
+                        chat = conn.execute("SELECT * FROM chats WHERE id = ?", (item["chat_id"],)).fetchone()
+                        sender = conn.execute("SELECT pub_sign FROM users WHERE id = ?", (item["sender_id"],)).fetchone()
+                        members = [row["user_id"] for row in conn.execute("SELECT user_id FROM chat_members WHERE chat_id = ?", (item["chat_id"],))]
+                        # A change to members or the sender's key invalidates the pre-encrypted envelope.
+                        if chat and sender and sender["pub_sign"] == item["sender_sign_key"] and json.dumps(sorted(members)) == item["member_ids"]:
+                            if chat["type"] != "dm" or not any(
+                                conn.execute("SELECT 1 FROM blocks WHERE (blocker_id = ? AND blocked_id = ?) OR (blocker_id = ? AND blocked_id = ?)",
+                                             (item["sender_id"], member, member, item["sender_id"])).fetchone()
+                                for member in members if member != item["sender_id"]
+                            ):
+                                rev = db.next_rev(conn)
+                                cur = conn.execute(
+                                    "INSERT INTO messages (id, chat_id, sender_id, kind, payload, created_at, rev, expires_at) VALUES (?, ?, ?, 'e2e', ?, ?, ?, ?)",
+                                    (item["id"], item["chat_id"], item["sender_id"], item["payload"], db.now_iso(), rev,
+                                     (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=chat["disappear_seconds"])).strftime("%Y-%m-%dT%H:%M:%SZ") if chat["disappear_seconds"] else None),
+                                )
+                                conn.execute("UPDATE chats SET last_activity = ? WHERE id = ?", (db.now_iso(), item["chat_id"]))
+                                conn.execute("UPDATE chat_members SET hidden = 0 WHERE chat_id = ?", (item["chat_id"],))
+                                conn.execute("UPDATE chat_members SET last_read_seq = ?, delivered_seq = ? WHERE chat_id = ? AND user_id = ?",
+                                             (cur.lastrowid, cur.lastrowid, item["chat_id"], item["sender_id"]))
+                        conn.execute("DELETE FROM scheduled_messages WHERE id = ?", (item["id"],))
+            finally:
+                conn.close()
+        except Exception:
+            app.logger.exception("Could not deliver scheduled messages")
+        time.sleep(5)
+
+
 @app.route("/api/chats/<chat_id>/messages", methods=["POST"])
 @login_required
 def post_message(chat_id):
@@ -3171,6 +3267,7 @@ def call_ice_servers():
 
 init_app()
 start_heartbeat()
+threading.Thread(target=deliver_scheduled_messages, daemon=True, name="scheduled-messages").start()
 
 if __name__ == "__main__":
     # Never enable the Werkzeug debugger on a public interface by default.

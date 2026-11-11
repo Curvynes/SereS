@@ -100,6 +100,17 @@ SCHEMA = [
     )""",
     "CREATE INDEX IF NOT EXISTS idx_receipts ON receipts(chat_id, user_id, kind, seq)",
     "CREATE INDEX IF NOT EXISTS idx_messages_chat_rev ON messages(chat_id, rev)",
+    """CREATE TABLE IF NOT EXISTS scheduled_messages (
+        id TEXT PRIMARY KEY,
+        chat_id TEXT NOT NULL,
+        sender_id TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        member_ids TEXT NOT NULL,
+        sender_sign_key TEXT NOT NULL,
+        send_at TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_scheduled_due ON scheduled_messages(send_at)",
     """CREATE TABLE IF NOT EXISTS meta (
         key TEXT PRIMARY KEY,
         value TEXT

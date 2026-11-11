@@ -2155,6 +2155,34 @@
     } catch (error) { showAlert(errorText(error)); }
   }
 
+  async function scheduleMessage() {
+    const opened = current;
+    const input = $("message-input-field") as HTMLTextAreaElement;
+    const message = input.value.trim();
+    if (!opened || !message || editing || pendingFiles.length) {
+      showAlert(t("schedule.textOnly"));
+      return;
+    }
+    const when = window.prompt(t("schedule.when"), new Date(Date.now() + 3600000).toLocaleString());
+    if (!when) return;
+    const date = new Date(when);
+    if (!Number.isFinite(date.getTime()) || date.getTime() < Date.now() + 60000) {
+      showAlert(t("schedule.invalid"));
+      return;
+    }
+    try {
+      const details = await readyToSend(opened, true);
+      const id = newMessageId();
+      const payload = await SeresCrypto.encryptMessage(identity, opened.id, id, { text: message }, encryptionMembers(details));
+      await post(`/api/chats/${encodeURIComponent(opened.id)}/scheduled`, { id, payload, send_at: date.toISOString() });
+      input.value = "";
+      drafts.delete(opened.id);
+      autoGrow(input);
+      updateSendButton();
+      showAlert(t("schedule.saved"));
+    } catch (error) { showAlert(errorText(error)); }
+  }
+
   function fileKind(mime: string): FileRef["kind"] {
     if (IMAGE_TYPES.includes(mime)) return "image";
     if (VIDEO_TYPES.includes(mime)) return "video";
@@ -2754,6 +2782,24 @@
     const body = $("chat-info-body");
     body.textContent = "";
     $("chat-info-title").textContent = details.name;
+
+    const scheduled = await api(`/api/chats/${encodeURIComponent(details.id)}/scheduled`);
+    if (scheduled.messages.length) {
+      const section = h("div", { className: "settings-section" }, [h("p", { text: t("schedule.pending") })]);
+      for (const item of scheduled.messages as { id: string; send_at: string }[]) {
+        section.appendChild(h("div", { className: "info-actions" }, [
+          h("span", { text: formatDateTime(item.send_at) }),
+          button(t("schedule.cancel"), "pill-btn secondary", async () => {
+            try {
+              const response = await fetch(`/api/chats/${encodeURIComponent(details.id)}/scheduled/${encodeURIComponent(item.id)}`, { method: "DELETE", credentials: "same-origin" });
+              if (!response.ok) throw new Error(t("common.requestFailed"));
+              await openChatInfo();
+            } catch (error) { showAlert(errorText(error)); }
+          }),
+        ]));
+      }
+      body.appendChild(section);
+    }
 
     if (details.type === "group") {
       const picture = h("div", { className: "group-picture-settings" }, [
@@ -3623,6 +3669,7 @@
     });
     $("send-btn").addEventListener("click", sendMessage);
     $("poll-btn").addEventListener("click", createPoll);
+    $("schedule-btn").addEventListener("click", scheduleMessage);
     $("edit-cancel").addEventListener("click", cancelEdit);
     $("reply-cancel").addEventListener("click", cancelReply);
     $("record-btn").addEventListener("click", startRecording);
