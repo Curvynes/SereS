@@ -523,7 +523,7 @@
     );
   }
 
-  /** Shows a desktop notification for chats that got new messages while you were away. */
+  /** Shows a desktop notification for chats with new unread messages. */
   function notifyNewMessages(previews: (Shown | null)[]) {
     const counts = new Map(chats.map((chat) => [chat.id, chat.unread] as [string, number]));
     const before = lastUnread;
@@ -531,7 +531,7 @@
     if (!before || !notificationsEnabled()) return;
     chats.forEach((chat, index) => {
       const old = before.get(chat.id) ?? 0;
-      if (chat.unread <= old || chat.muted || chat.archived) return;
+      if (chat.unread <= old) return;
       if (document.visibilityState === "visible" && current && current.id === chat.id) return;
       const body = readStore("settings").preview === "off" ? t("notify.newMessage") : previewText(chat, previews[index]);
       try {
@@ -1420,6 +1420,20 @@
       `/api/chats/${encodeURIComponent(opened.id)}/messages?since_rev=${opened.maxRev}&limit=200`,
     );
     if (current !== opened) return;
+    const incoming = (data.messages as Message[]).filter((message) =>
+      !opened.messages.has(message.id) && !message.silent && message.kind === "e2e" && message.sender_id !== me.id,
+    );
+    if (notificationsEnabled() && document.visibilityState === "visible") {
+      for (const message of incoming) {
+        const shown = await showMessage(opened.id, message);
+        if (current !== opened) return;
+        const body = readStore("settings").preview === "off" ? t("notify.newMessage") : (message.sender_display || message.sender || "") + ": " + contentPreview(shown);
+        try {
+          const note = new Notification(opened.details?.name || t("notify.newMessage"), { body, tag: message.id, icon: "assets/favicon.png" });
+          note.onclick = () => { window.focus(); note.close(); };
+        } catch { /* Browser does not support notifications here. */ }
+      }
+    }
     opened.typing = data.typing || [];
     renderSubtitle();
     const receiptsChanged = JSON.stringify(data.receipts || null) !== JSON.stringify(opened.receipts);
