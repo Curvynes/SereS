@@ -10,19 +10,18 @@
   </head>
   <body>
     <nav class="app-rail" aria-label="Main navigation">
-      <button class="rail-menu" id="menu-toggle" type="button" aria-label="Toggle conversations"><span class="material-symbols-rounded">menu</span></button>
+      <div class="brand-mark" aria-label="SereS">S</div>
       <button class="rail-nav active" type="button" data-rail-view="chats" aria-label="Chats"><span class="material-symbols-rounded">chat_bubble</span></button>
       <button class="rail-nav" type="button" data-rail-view="friends" aria-label="Friends"><span class="material-symbols-rounded">group</span></button>
       <button class="rail-nav" type="button" data-rail-view="requests" aria-label="Requests"><span class="material-symbols-rounded">person_add</span></button>
       <span class="rail-spacer"></span>
       <button class="rail-nav" id="rail-settings" type="button" aria-label="Settings"><span class="material-symbols-rounded">settings</span></button>
-      <div class="avatar rail-avatar" id="rail-avatar"><span>?</span></div>
     </nav>
     <div class="sidebar">
       <div class="sidebar-header">
         <span>SereS</span>
         <button class="add-friend-main-button" type="button" id="btn-add-friend">
-          <h6 data-i18n="app.addFriend">Add Friend</h6>
+          <span class="material-symbols-rounded">person_add</span><h6 data-i18n="app.addFriend">Add Friend</h6>
         </button>
       </div>
       <div class="mobile-welcome">
@@ -43,7 +42,7 @@
         <div class="section-title chat-section-header" id="chats-header">
           <span data-i18n="app.chatsHeader">Direct Messages &amp; Groups</span>
           <span class="section-actions">
-            <button class="add-dm-button" type="button" id="btn-new-chat" title="New message" data-i18n-title="newChat.button">+</button>
+            <button class="add-dm-button" type="button" id="btn-new-chat" title="New message" data-i18n-title="newChat.button"><span class="material-symbols-rounded">edit_square</span></button>
           </span>
         </div>
         <div class="list-search-wrap">
