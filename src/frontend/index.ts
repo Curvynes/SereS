@@ -3429,11 +3429,8 @@
   function loadOwnAvatar() {
     const text = $("user-avatar-text");
     const img = $("user-avatar-img") as HTMLImageElement;
-    const rail = $("rail-avatar");
     text.textContent = nameOf(me).charAt(0).toUpperCase();
-    rail.textContent = text.textContent;
     $("user-avatar").style.backgroundColor = colorFor(me.username);
-    rail.style.backgroundColor = colorFor(me.username);
     fetch("/api/get_avatar", { credentials: "same-origin" })
       .then((response) => {
         if (!response.ok) throw new Error("no avatar");
@@ -3443,11 +3440,6 @@
         img.src = URL.createObjectURL(blob);
         img.classList.remove("hidden-el");
         text.style.display = "none";
-        const railImage = document.createElement("img");
-        railImage.src = img.src;
-        railImage.alt = "";
-        rail.textContent = "";
-        rail.appendChild(railImage);
       })
       .catch(() => {
         img.classList.add("hidden-el");
@@ -3541,7 +3533,7 @@
     const savedWidth = Number(localStorage.getItem("seres-sidebar-width")) || 450;
     document.documentElement.style.setProperty("--sidebar-width", `${Math.min(640, Math.max(340, savedWidth))}px`);
     const resizeAt = (clientX: number) => {
-      const width = Math.min(640, Math.max(340, clientX - 18 - 72));
+      const width = Math.min(640, Math.max(340, clientX - 72));
       document.documentElement.style.setProperty("--sidebar-width", `${width}px`);
       resizer.setAttribute("aria-valuenow", String(width));
       localStorage.setItem("seres-sidebar-width", String(width));
@@ -3558,7 +3550,7 @@
       event.preventDefault();
       const delta = (event as KeyboardEvent).key === "ArrowLeft" ? -20 : 20;
       const currentWidth = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--sidebar-width"), 10) || 450;
-      resizeAt(currentWidth + delta + 72 + 18);
+      resizeAt(currentWidth + delta + 72);
     });
     $("btn-add-friend").addEventListener("click", () => {
       $("warning-add-friend").textContent = "";
@@ -3638,7 +3630,6 @@
       event.preventDefault();
       addPendingFiles(event.dataTransfer.files);
     });
-    $("menu-toggle").addEventListener("click", () => document.querySelector(".sidebar")?.classList.toggle("open"));
     document.querySelectorAll<HTMLElement>(".rail-nav[data-rail-view]").forEach((button) => button.addEventListener("click", () => switchView(button.dataset.railView as "chats" | "friends" | "requests")));
     $("rail-settings").addEventListener("click", openSettings);
     $("user-menu-trigger").addEventListener("click", () => $("user-dropdown-menu").classList.toggle("modal-hidden"));
