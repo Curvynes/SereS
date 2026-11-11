@@ -4085,4 +4085,11 @@ body.bright-body #settings-modal .modal-box { background: #f6f8f7 !important; bo
 body.bright-body #settings-modal .settings-section { background: #fff; border-color: #e1e8e6; }
 body.bright-body #settings-modal .settings-section > p:first-child { color: #273333 !important; }
 body.bright-body #settings-modal .secondary-btn, body.bright-body #settings-modal .modal-btn.secondary-btn { background: #edf2f0; color: #24312f; border-color: #d5e0dc; }
+@font-face {
+  font-family: 'Material Symbols Rounded';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('assets/material-symbols-rounded.ttf') format('truetype');
+}
 .material-symbols-rounded { font-family: 'Material Symbols Rounded'; font-weight: normal; font-style: normal; font-size: 24px; line-height: 1; letter-spacing: normal; text-transform: none; display: inline-block; white-space: nowrap; direction: ltr; font-feature-settings: 'liga'; -webkit-font-feature-settings: 'liga'; -webkit-font-smoothing: antialiased; }
