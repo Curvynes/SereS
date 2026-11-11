@@ -13,6 +13,7 @@
       <button class="rail-nav active" type="button" data-rail-view="chats" aria-label="Chats"><span class="material-symbols-rounded">chat_bubble</span></button>
       <button class="rail-nav" type="button" data-rail-view="friends" aria-label="Friends"><span class="material-symbols-rounded">group</span></button>
       <button class="rail-nav" type="button" data-rail-view="requests" aria-label="Requests"><span class="material-symbols-rounded">person_add</span></button>
+      <button class="rail-nav" type="button" data-rail-view="matrix" aria-label="Matrix" title="Matrix"><span class="material-symbols-rounded" aria-hidden="true">hub</span></button>
       <span class="rail-spacer"></span>
       <button class="rail-nav" id="rail-settings" type="button" aria-label="Settings"><span class="material-symbols-rounded">settings</span></button>
     </nav>
@@ -30,6 +31,7 @@
           <button class="list-view-toggle" type="button" data-view="requests">
             <span data-i18n="app.tabRequests">Requests</span> <span class="tab-badge" id="requests-badge"></span>
           </button>
+          <button class="list-view-toggle" type="button" data-view="matrix">Matrix</button>
         </div>
 
         <div class="section-title chat-section-header" id="chats-header">
@@ -52,6 +54,7 @@
         <div id="dm-list" class="list-view-panel active" data-panel="chats"></div>
         <div id="friends-list" class="list-view-panel" data-panel="friends"></div>
         <div id="requests-list" class="list-view-panel" data-panel="requests"></div>
+        <div id="matrix-list" class="list-view-panel" data-panel="matrix"></div>
       </div>
 
       <div class="user-menu-container">
@@ -158,6 +161,7 @@
           </svg>
         </button>
       </div>
+      <div id="matrix-app-root" class="matrix-app-root modal-hidden"></div>
     </div>
 
     <!-- Add friend -->
@@ -411,6 +415,7 @@
     <script src="codes.js"></script>
     <script src="passkeys.js"></script>
     <script src="calls.js"></script>
+    <script type="module" src="matrix.js"></script>
     <script src="index.js"></script>
   </body>
 </html>

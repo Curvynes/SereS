@@ -209,15 +209,18 @@ def csrf_protect():
 def security_headers(response):
     response.headers.setdefault(
         "Content-Security-Policy",
-        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+        "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; "
         "img-src 'self' blob: data:; media-src 'self' blob:; object-src 'self'; "
-        "frame-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; "
+        # Matrix accounts can use any HTTPS homeserver, including discovered hosts.
+        # Plain HTTP is supported only for local development homeservers.
+        "frame-src 'self'; connect-src 'self' https: wss: http://localhost:* "
+        "http://127.0.0.1:* http://[::1]:*; base-uri 'none'; form-action 'self'; "
         "frame-ancestors 'self'",
     )
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("Referrer-Policy", "no-referrer")
     response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
-    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(self), geolocation=()")
+    response.headers.setdefault("Permissions-Policy", "camera=(self), microphone=(self), geolocation=()")
     if flask.request.path.startswith("/api/"):
         response.headers.setdefault("Cache-Control", "no-store")
     else:

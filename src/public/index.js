@@ -372,6 +372,26 @@
     function notificationsEnabled() {
         return ("Notification" in window && Notification.permission === "granted" && readStore("settings").notify === "on");
     }
+    window.addEventListener("seres:notification", (event) => {
+        if (!notificationsEnabled())
+            return;
+        const detail = event.detail;
+        if (!detail)
+            return;
+        const body = readStore("settings").preview === "off" ? t("notify.newMessage") : detail.body;
+        try {
+            const note = new Notification(detail.title, { body, tag: detail.tag, icon: "assets/favicon.png" });
+            note.onclick = () => {
+                window.focus();
+                detail.onClick?.();
+                note.close();
+            };
+        }
+        catch {
+            /* Notifications may be unavailable in some browsers. */
+        }
+    });
+    window.addEventListener("seres:open-matrix", () => switchView("matrix"));
     /** Shows a desktop notification for chats that got new messages while you were away. */
     function notifyNewMessages(previews) {
         const counts = new Map(chats.map((chat) => [chat.id, chat.unread]));
@@ -811,8 +831,23 @@
         $("chats-header").style.display = view === "chats" ? "flex" : "none";
         $("friends-header").style.display = view === "friends" ? "flex" : "none";
         $("requests-header").style.display = view === "requests" ? "flex" : "none";
-        $("list-search").parentElement.style.display = "block";
-        document.querySelectorAll(".rail-nav[data-rail-view]").forEach((button) => button.classList.toggle("active", button.dataset.railView === view));
+        $("list-search").parentElement.style.display = view === "matrix" ? "none" : "block";
+        document.querySelectorAll(".rail-nav[data-rail-view]").forEach((button) => {
+            const selected = button.dataset.railView === view;
+            button.classList.toggle("active", selected);
+            if (selected)
+                button.setAttribute("aria-current", "page");
+            else
+                button.removeAttribute("aria-current");
+        });
+        const matrixOpen = view === "matrix";
+        document.querySelector(".main-chat")?.classList.toggle("matrix-open", matrixOpen);
+        $("matrix-app-root").classList.toggle("modal-hidden", !matrixOpen);
+        const matrixController = window.SeresMatrix;
+        if (matrixOpen)
+            matrixController?.activate();
+        else
+            matrixController?.deactivate();
     }
     // ------------------------------------------------------------ open chat
     async function openChat(chatId) {
@@ -3283,7 +3318,7 @@
         // Drop files onto the chat or paste images to attach them.
         const chatArea = document.querySelector(".main-chat");
         chatArea.addEventListener("dragover", (event) => {
-            if (!current || !event.dataTransfer?.types.includes("Files"))
+            if (chatArea.classList.contains("matrix-open") || !current || !event.dataTransfer?.types.includes("Files"))
                 return;
             event.preventDefault();
             chatArea.classList.add("drag-over");
@@ -3294,7 +3329,7 @@
         });
         chatArea.addEventListener("drop", (event) => {
             chatArea.classList.remove("drag-over");
-            if (!current || !event.dataTransfer?.files.length)
+            if (chatArea.classList.contains("matrix-open") || !current || !event.dataTransfer?.files.length)
                 return;
             event.preventDefault();
             addPendingFiles(event.dataTransfer.files);

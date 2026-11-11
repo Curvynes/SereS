@@ -1,0 +1,20 @@
+{
+  "name": "seres-matrix-tab",
+  "private": true,
+  "version": "1.0.0",
+  "license": "UNLICENSED",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --project tsconfig.json",
+    "test": "node --test matrix.regression.test.cjs"
+  },
+  "dependencies": {
+    "@matrix-org/matrix-sdk-crypto-wasm": "18.9.2",
+    "matrix-js-sdk": "44.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "jsdom": "26.1.0",
+    "typescript": "5.8.3"
+  }
+}

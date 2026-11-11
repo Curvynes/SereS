@@ -9,3 +9,5 @@ users.db-wal
 users.db-shm
 .pytest_cache/
 ecosystem.config.js
+!src/matrix/package.json
+!src/matrix/package-lock.json
