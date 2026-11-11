@@ -4148,3 +4148,128 @@ body.bright-body #add-friend-modal .modal-box, body.bright-body #new-chat-modal 
   #settings-modal .modal-box { display: flex; width: min(560px, calc(100vw - 24px)); padding: 20px; }
   #settings-modal .modal-box > h3 { top: -20px; margin: -20px -20px 0; padding: 18px 20px 10px; }
 }
+
+/* Keep secondary surfaces on the same palette as the main conversation. */
+:root {
+  --ui-main-surface: #191e1f;
+  --ui-sidebar-surface: #202526;
+  --ui-raised-surface: #252c2d;
+  --ui-control-surface: #2b3233;
+  --ui-hover-surface: #343c3d;
+  --ui-border: #303838;
+  --ui-text: #e2e6e5;
+  --ui-muted: #aab5b3;
+  --ui-accent: #719790;
+}
+
+body.bright-body {
+  --ui-main-surface: #fafafa;
+  --ui-sidebar-surface: #ffffff;
+  --ui-raised-surface: #f4f7f6;
+  --ui-control-surface: #eff3f2;
+  --ui-hover-surface: #e2eae7;
+  --ui-border: #dce5e2;
+  --ui-text: #24312f;
+  --ui-muted: #53625f;
+}
+
+body:not(.bright-body) .app-rail { background: var(--ui-main-surface); border-color: var(--ui-border); }
+body:not(.bright-body) .rail-nav.active,
+body:not(.bright-body) .rail-nav:hover { background: var(--ui-hover-surface); }
+
+.user-menu-container,
+.user-menu-container.bright-user-menu-container {
+  background: var(--ui-sidebar-surface) !important;
+  border-color: var(--ui-border) !important;
+  padding: 12px 14px;
+}
+.user-menu-trigger { min-height: 48px; padding: 6px 10px; border-radius: 12px; transition: background-color .18s ease; }
+.user-menu-trigger:hover { background: var(--ui-control-surface); }
+.user-menu-trigger .item-name { color: var(--ui-text); }
+.user-dropdown,
+.user-dropdown.bright-user-dropdown { background: var(--ui-main-surface); border-color: var(--ui-border); color: var(--ui-text); }
+.dropdown-username { color: var(--ui-text); }
+.dropdown-item { color: var(--ui-text); }
+.dropdown-item:hover { background: var(--ui-hover-surface); }
+
+.modal-box,
+.modal-box.bright-modal-box {
+  background: var(--ui-main-surface) !important;
+  border: 1px solid var(--ui-border);
+  color: var(--ui-text);
+}
+.modal-box h3,
+.modal-box.bright-modal-box h3 { color: var(--ui-text) !important; }
+.modal-box p,
+.modal-box.bright-modal-box p { color: var(--ui-muted) !important; }
+.modal-box input,
+.modal-box.bright-modal-box input,
+.modal-box select,
+.modal-box textarea {
+  background: var(--ui-control-surface) !important;
+  border-color: var(--ui-border) !important;
+  color: var(--ui-text) !important;
+}
+.modal-box input::placeholder,
+.modal-box textarea::placeholder { color: var(--ui-muted); }
+.modal-box input:focus,
+.modal-box select:focus,
+.modal-box textarea:focus { border-color: var(--calm-accent) !important; }
+.modal-btn.secondary-btn,
+.modal-box .secondary-btn { background: var(--ui-control-surface); border-color: var(--ui-border); color: var(--ui-text); }
+.modal-btn.secondary-btn:hover,
+.modal-box .secondary-btn:hover { background: var(--ui-hover-surface); }
+.modal-box .cancel-btn { background: var(--ui-control-surface) !important; border: 1px solid var(--ui-border) !important; color: var(--ui-text) !important; }
+.modal-box .cancel-btn:hover { background: var(--ui-hover-surface) !important; }
+
+#settings-modal .modal-box,
+#add-friend-modal .modal-box,
+#new-chat-modal .modal-box,
+#invite-modal .modal-box,
+#invite-accept-modal .modal-box { background: var(--ui-main-surface) !important; border-color: var(--ui-border); }
+#settings-modal .settings-section {
+  background: var(--ui-raised-surface) !important;
+  border-color: var(--ui-border) !important;
+}
+#settings-modal .settings-section > p:first-child { color: var(--ui-text) !important; }
+#settings-modal .settings-section input,
+#settings-modal .settings-section select,
+#settings-modal .settings-section textarea,
+#settings-modal .language-select {
+  background: var(--ui-control-surface) !important;
+  border-color: var(--ui-border) !important;
+  color: var(--ui-text) !important;
+}
+#settings-modal .settings-section .modal-btn.secondary-btn {
+  background: var(--ui-control-surface) !important;
+  border-color: var(--ui-border) !important;
+  color: var(--ui-text) !important;
+}
+#settings-modal .settings-section .modal-btn.secondary-btn:hover { background: var(--ui-hover-surface) !important; }
+#settings-modal .settings-section input::placeholder { color: var(--ui-muted); }
+#settings-modal > .modal-box > .modal-buttons .cancel-btn {
+  background: var(--ui-control-surface) !important;
+  border-color: var(--ui-border) !important;
+  color: var(--ui-text) !important;
+}
+#settings-modal > .modal-box > .modal-buttons .cancel-btn:hover { background: var(--ui-hover-surface) !important; }
+
+.user-dropdown .dropdown-divider { border-color: var(--ui-border); }
+.request-list-item,
+.request-list-item:hover { background: var(--ui-raised-surface) !important; border-color: var(--ui-border) !important; }
+#new-chat-list .picker-item:hover,
+#new-chat-list .picker-item.active { background: var(--ui-hover-surface); }
+.floating-menu { background: var(--ui-main-surface); border-color: var(--ui-border); color: var(--ui-text); }
+#cookie-banner { background: var(--ui-main-surface); border-color: var(--ui-border); color: var(--ui-text); }
+#cookie-banner .cookie-text { color: var(--ui-muted); }
+#cookie-banner .cookie-deny { background: var(--ui-control-surface); color: var(--ui-text); }
+
+.add-dm-button {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: var(--ui-accent) !important;
+  color: #fff !important;
+}
+.add-dm-button:hover { background: #607f7a !important; color: #fff !important; }
+.add-dm-button .material-symbols-rounded { color: inherit; }
