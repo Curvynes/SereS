@@ -788,6 +788,7 @@
         });
         $("chats-header").style.display = view === "chats" ? "flex" : "none";
         $("friends-header").style.display = view === "friends" ? "flex" : "none";
+        $("requests-header").style.display = view === "requests" ? "flex" : "none";
         $("list-search").parentElement.style.display = view === "requests" ? "none" : "block";
         document.querySelectorAll(".rail-nav[data-rail-view]").forEach((button) => button.classList.toggle("active", button.dataset.railView === view));
     }
@@ -2710,7 +2711,7 @@
     // ------------------------------------------------------------ settings
     async function uploadAvatar() {
         const input = $("avatar-upload-input");
-        const warning = $("settings-warning");
+        const warning = $("avatar-warning");
         warning.textContent = "";
         const file = input.files && input.files[0];
         if (!file) {
@@ -2738,7 +2739,7 @@
         }
     }
     async function changePassword() {
-        const warning = $("settings-warning");
+        const warning = $("password-warning");
         const oldPw = $("old-password").value;
         const newPw = $("new-password").value;
         const repeat = $("new-password-repeat").value;
@@ -2861,7 +2862,7 @@
             $("current-chat-name").textContent = t("app.welcomeUser", { name: nameOf(me) });
     }
     async function saveDisplayName() {
-        const warning = $("settings-warning");
+        const warning = $("display-name-warning");
         warning.textContent = "";
         try {
             const data = await post("/api/profile/display_name", {
@@ -2945,7 +2946,7 @@
         $("twofa-add-passkey").classList.toggle("modal-hidden", !SeresPasskeys.supported());
     }
     async function twofaAction(work) {
-        const warning = $("settings-warning");
+        const warning = $("twofa-warning");
         warning.textContent = "";
         try {
             await work();
@@ -3018,7 +3019,7 @@
     }
     /** Makes 10 new backup codes (old ones stop working) and shows them once. */
     async function generateCodes() {
-        const warning = $("settings-warning");
+        const warning = $("codes-warning");
         const passwordInput = $("codes-password");
         const password = passwordInput.value;
         warning.textContent = "";
@@ -3060,7 +3061,9 @@
         $("twofa-totp-setup").classList.add("modal-hidden");
         renderSettingsToggles();
         $("user-dropdown-menu").classList.add("modal-hidden");
-        $("settings-warning").textContent = "";
+        ["display-name-warning", "avatar-warning", "twofa-warning", "codes-warning", "password-warning"].forEach((id) => {
+            $(id).textContent = "";
+        });
         $("display-name-input").value = nameOf(me);
         showCookieStatus();
         openModal("settings-modal");
@@ -3277,10 +3280,6 @@
         document.querySelectorAll(".rail-nav[data-rail-view]").forEach((button) => button.addEventListener("click", () => switchView(button.dataset.railView)));
         $("rail-settings").addEventListener("click", openSettings);
         $("user-menu-trigger").addEventListener("click", () => $("user-dropdown-menu").classList.toggle("modal-hidden"));
-        $("menu-settings").addEventListener("click", (event) => {
-            event.preventDefault();
-            openSettings();
-        });
         $("menu-logout").addEventListener("click", (event) => {
             event.preventDefault();
             logout();
@@ -3467,7 +3466,7 @@
         if (recoveredBy === "code") {
             // Point to the backup codes, one of them was just used.
             await openSettings();
-            $("settings-warning").textContent = t("recover.doneCode");
+            $("codes-warning").textContent = t("recover.doneCode");
             $("codes-form").scrollIntoView({ block: "center" });
         }
         if (pendingInvite) {

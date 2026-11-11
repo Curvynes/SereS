@@ -4185,9 +4185,11 @@ body.bright-body .rail-nav:hover { background: var(--ui-hover-surface); color: v
 .user-menu-container.bright-user-menu-container {
   background: var(--ui-sidebar-surface) !important;
   border-color: var(--ui-border) !important;
-  padding: 12px 14px;
+  padding: 8px 10px;
 }
-.user-menu-trigger { min-height: 48px; padding: 6px 10px; border-radius: 12px; transition: background-color .18s ease; }
+.user-menu-trigger { min-height: 40px; padding: 3px 7px; gap: 10px; border-radius: 12px; transition: background-color .18s ease; }
+.user-menu-trigger > .avatar { width: 34px; height: 34px; font-size: .85rem; }
+.user-menu-trigger .item-name { font-size: .92rem; }
 .user-menu-trigger:hover { background: var(--ui-control-surface); }
 .user-menu-trigger .item-name { color: var(--ui-text); }
 .user-dropdown,
@@ -4219,6 +4221,23 @@ body.bright-body .rail-nav:hover { background: var(--ui-hover-surface); color: v
 .modal-box input:focus,
 .modal-box select:focus,
 .modal-box textarea:focus { border-color: var(--calm-accent) !important; }
+.settings-notice:empty { display: none; }
+.settings-notice:not(:empty) {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border-left: 3px solid #bd746c;
+  border-radius: 8px;
+  background: rgba(189, 116, 108, .14);
+  color: #e8b2ac;
+  line-height: 1.35;
+}
+body.bright-body .settings-notice:not(:empty) {
+  border-left-color: #bd746c;
+  background: #f8eae8;
+  color: #913f39;
+}
 .modal-btn.secondary-btn,
 .modal-box .secondary-btn { background: var(--ui-control-surface); border-color: var(--ui-border); color: var(--ui-text); }
 .modal-btn.secondary-btn:hover,
@@ -4259,6 +4278,20 @@ body.bright-body .rail-nav:hover { background: var(--ui-hover-surface); color: v
 #settings-modal > .modal-box > .modal-buttons .cancel-btn:hover { background: var(--ui-hover-surface) !important; }
 
 .user-dropdown .dropdown-divider { border-color: var(--ui-border); }
+.dropdown-item { gap: 10px; }
+.dropdown-item > .material-symbols-rounded,
+.dropdown-item > img {
+  width: 20px !important;
+  height: 20px !important;
+  flex: 0 0 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  object-fit: contain;
+  font-size: 20px;
+  line-height: 1;
+}
+.list-view-panel[data-panel="requests"] { padding-top: 4px; }
 .request-list-item,
 .request-list-item:hover { background: var(--ui-raised-surface) !important; border-color: var(--ui-border) !important; }
 #new-chat-list .picker-item:hover,
