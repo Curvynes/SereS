@@ -413,39 +413,6 @@ body.bright-body {
   border-bottom: 1px solid #e1e9eb;
 }
 
-.alert-box {
-  display: none;
-  position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
-  background-color: #ea0038;
-  color: white;
-  padding: 14px 24px;
-  border-radius: 8px;
-  font-weight: 600;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
-  z-index: 1000;
-  cursor: pointer;
-  animation: moveUpDown 4s linear forwards;
-}
-
-.alert-box.bright-alert-box {
-  background-color: #ea0038;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
-}
-
-@keyframes moveUpDown {
-  0% {
-    top: 20px;
-  }
-  90% {
-    top: 20px;
-  }
-  100% {
-    top: -60px;
-  }
-}
-
 #ahaa a {
   color: #2196f3;
   text-decoration: underline;
@@ -1284,31 +1251,6 @@ body.bright-body .item-name {
   color: #111b21 !important;
 }
 
-#alert,
-.alert-box {
-  position: fixed !important;
-  top: 20px !important;
-  left: 50% !important;
-  transform: translateX(-50%) !important;
-  z-index: 99999999 !important;
-  max-width: 90vw !important;
-  opacity: 1 !important;
-  transition:
-    opacity 0.5s ease,
-    transform 0.5s ease !important;
-  overflow: hidden !important;
-}
-
-#alert.hidden,
-.alert-box.hidden {
-  opacity: 0 !important;
-  transform: translate(-50%, -20px) !important;
-  padding: 0 !important;
-  margin: 0 !important;
-  border: none !important;
-  height: 0 !important;
-}
-
 /* ------------------------------------------------------------------ */
 /* v1.1: encrypted chats, groups, friends                              */
 /* ------------------------------------------------------------------ */
@@ -1334,19 +1276,6 @@ body.bright-body .item-name {
 
 .hidden-el {
   display: none !important;
-}
-
-#alert {
-  display: block;
-  animation: none;
-  background-color: #2a3942;
-  border-left: 4px solid #00a884;
-  color: #e9edef;
-}
-
-body.bright-body #alert {
-  background-color: #ffffff;
-  color: #111b21;
 }
 
 .main-chat {
@@ -1967,7 +1896,7 @@ body.bright-body .chat-info-body {
   left: 50%;
   bottom: 16px;
   transform: translateX(-50%);
-  /* Above the mobile sidebar, dialogs and menus; only alerts are higher. */
+  /* Above the mobile sidebar, dialogs and menus. */
   z-index: 99999998;
   width: min(520px, calc(100% - 32px));
   box-sizing: border-box;
@@ -2190,13 +2119,6 @@ body.bright-body .language-select {
   .list-container,
   .list-view-panel {
     overscroll-behavior: contain;
-  }
-
-  .alert-box {
-    top: calc(12px + env(safe-area-inset-top)) !important;
-    width: calc(100% - 32px);
-    box-sizing: border-box;
-    text-align: center;
   }
 
   .cookie-banner {
@@ -4164,6 +4086,9 @@ body.bright-body #add-friend-modal .modal-box, body.bright-body #new-chat-modal 
   --ui-text: #e2e6e5;
   --ui-muted: #aab5b3;
   --ui-accent: #719790;
+  --ui-file-button: #394344;
+  --ui-file-button-hover: #434f4f;
+  --ui-file-button-border: #505d5d;
 }
 
 body.bright-body {
@@ -4175,6 +4100,9 @@ body.bright-body {
   --ui-border: #dce5e2;
   --ui-text: #24312f;
   --ui-muted: #53625f;
+  --ui-file-button: #e3ebe8;
+  --ui-file-button-hover: #d6e1dd;
+  --ui-file-button-border: #c8d5d1;
 }
 
 body:not(.bright-body) .app-rail { background: var(--ui-main-surface); border-color: var(--ui-border); }
@@ -4277,14 +4205,14 @@ body.bright-body .settings-notice:not(:empty) {
 #settings-modal input[type="file"]::file-selector-button {
   margin-right: 10px;
   padding: 8px 12px;
-  border: 1px solid var(--ui-border);
+  border: 1px solid var(--ui-file-button-border);
   border-radius: 8px;
-  background: var(--ui-control-surface);
+  background: var(--ui-file-button);
   color: var(--ui-text);
   font: inherit;
   cursor: pointer;
 }
-#settings-modal input[type="file"]::file-selector-button:hover { background: var(--ui-hover-surface); }
+#settings-modal input[type="file"]::file-selector-button:hover { background: var(--ui-file-button-hover); }
 #settings-modal > .modal-box > .modal-buttons .cancel-btn {
   background: var(--ui-control-surface) !important;
   border-color: var(--ui-border) !important;
@@ -4324,3 +4252,66 @@ body.bright-body .settings-notice:not(:empty) {
 }
 .add-dm-button:hover { background: var(--ui-hover-surface) !important; color: var(--ui-text) !important; }
 .add-dm-button .material-symbols-rounded { color: inherit; }
+
+@media (min-width: 769px) {
+  #requests-header { min-height: 64px; box-sizing: border-box; align-items: center; }
+}
+@media (max-width: 768px) {
+  #requests-header { min-height: 66px; box-sizing: border-box; align-items: center; }
+}
+
+.toast-stack {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 100000000;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+  width: min(420px, calc(100vw - 32px));
+  pointer-events: none;
+}
+.app-toast {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: 12px;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--ui-border);
+  border-left: 3px solid var(--ui-accent);
+  border-radius: 14px;
+  background: var(--ui-sidebar-surface);
+  color: var(--ui-text);
+  box-shadow: 0 12px 32px #0003;
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity .2s ease, transform .2s ease;
+  pointer-events: auto;
+}
+.app-toast-visible { opacity: 1; transform: translateY(0); }
+.app-toast-exit { opacity: 0; transform: translateX(10px); }
+.app-toast-icon { color: var(--ui-accent); font-size: 21px; }
+.app-toast-message { min-width: 0; overflow-wrap: anywhere; font-size: .9rem; line-height: 1.4; }
+.app-toast-close {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ui-muted);
+  cursor: pointer;
+}
+.app-toast-close:hover { background: var(--ui-hover-surface); color: var(--ui-text); }
+.app-toast-close .material-symbols-rounded { font-size: 20px; }
+@media (max-width: 768px) {
+  .toast-stack { right: 16px; bottom: calc(16px + env(safe-area-inset-bottom)); left: 16px; width: auto; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-toast { transition: none; }
+}

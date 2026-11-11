@@ -259,13 +259,29 @@
     return api(path, { method: "POST", body });
   }
 
-  let alertTimer: number | null = null;
-  function showAlert(message: string) {
-    const box = $("alert");
-    $("alert-text").textContent = message;
-    box.classList.remove("hidden");
-    if (alertTimer !== null) clearTimeout(alertTimer);
-    alertTimer = window.setTimeout(() => box.classList.add("hidden"), 4000);
+  function showAlert(message: string, duration = 4200) {
+    const stack = $("toast-stack");
+    const toast = h("div", { className: "app-toast", attrs: { role: "status" } }, [
+      h("span", { className: "material-symbols-rounded app-toast-icon", text: "info" }),
+      h("span", { className: "app-toast-message", text: message }),
+    ]);
+    const close = h("button", { className: "app-toast-close", attrs: { type: "button", "aria-label": t("common.close") } }, [
+      h("span", { className: "material-symbols-rounded", text: "close" }),
+    ]);
+    toast.appendChild(close);
+    stack.appendChild(toast);
+    while (stack.childElementCount > 4) stack.firstElementChild?.remove();
+    const dismiss = () => {
+      toast.classList.add("app-toast-exit");
+      window.setTimeout(() => toast.remove(), 220);
+    };
+    const timer = window.setTimeout(dismiss, duration);
+    close.addEventListener("click", (event) => {
+      event.stopPropagation();
+      clearTimeout(timer);
+      dismiss();
+    });
+    window.requestAnimationFrame(() => toast.classList.add("app-toast-visible"));
   }
 
   function errorText(error: unknown) {
@@ -961,8 +977,14 @@
 
   function renderRequests() {
     const list = $("requests-list");
+    const filter = (($("list-search") as HTMLInputElement).value || "").trim().toLowerCase();
     list.textContent = "";
-    if (!friends.incoming.length) {
+    const incoming = friends.incoming.filter((user) =>
+      !filter || user.username.toLowerCase().includes(filter) || nameOf(user).toLowerCase().includes(filter),
+    );
+    if (!incoming.length && filter) {
+      list.appendChild(h("div", { className: "list-empty", text: t("search.none") }));
+    } else if (!incoming.length) {
       list.appendChild(
         h("div", { className: "list-item request-list-item" }, [
           h("div", { className: "avatar", text: "!" }),
@@ -973,7 +995,7 @@
         ]),
       );
     }
-    friends.incoming.forEach((user) => {
+    incoming.forEach((user) => {
       list.appendChild(
         userRow(user, t("requests.wants"), [
           button(t("requests.accept"), "request-action-btn accept", async () => {
@@ -998,6 +1020,7 @@
   }
 
   function switchView(view: "chats" | "friends" | "requests") {
+    document.querySelector<HTMLElement>(".list-container")!.scrollTop = 0;
     document.querySelectorAll<HTMLElement>(".list-view-toggle").forEach((btn) => {
       btn.classList.toggle("active", btn.dataset.view === view);
     });
@@ -1007,7 +1030,7 @@
     $("chats-header").style.display = view === "chats" ? "flex" : "none";
     $("friends-header").style.display = view === "friends" ? "flex" : "none";
     $("requests-header").style.display = view === "requests" ? "flex" : "none";
-    $("list-search").parentElement!.style.display = view === "requests" ? "none" : "block";
+    $("list-search").parentElement!.style.display = "block";
     document.querySelectorAll<HTMLElement>(".rail-nav[data-rail-view]").forEach((button) => button.classList.toggle("active", button.dataset.railView === view));
   }
 
@@ -2972,7 +2995,7 @@
           const code = await SeresCrypto.safetyNumber(myFp, fp);
           row.appendChild(
             button(t("info.code"), "request-action-btn more", () => {
-              window.alert(t("info.codeAlert", { name: nameOf(member), code }));
+              showAlert(t("info.codeAlert", { name: nameOf(member), code }), 10000);
             }),
           );
           row.appendChild(verifyToggle(member.id, fp, verified, true));
@@ -3831,6 +3854,7 @@
       chatsSignature = "";
       loadChats().catch(() => {});
       renderFriends();
+      renderRequests();
     });
 
     document.querySelectorAll<HTMLElement>("[data-close-modal]").forEach((btn) => {
