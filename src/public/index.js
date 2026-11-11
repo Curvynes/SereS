@@ -425,6 +425,8 @@
     }
     /** One line describing a message: its text, or what was attached. */
     function contentPreview(shown) {
+        if (shown.content?.type === "poll" && shown.content.poll)
+            return t("poll.preview", { question: shown.content.poll.question });
         const file = shown.content?.file;
         const text = SeresFormat.plain(shown.text);
         if (!file)
@@ -1358,6 +1360,18 @@
             bubble.appendChild(replyQuote(opened, content.reply));
         if (content.file)
             bubble.appendChild(renderFile(opened, content.file));
+        if (content.type === "poll" && content.poll && Array.isArray(content.poll.options)) {
+            const poll = content.poll;
+            const votes = reactions || new Map();
+            const mine = votes.get(me.id)?.emoji;
+            const panel = h("div", { className: "poll" }, [h("strong", { text: poll.question })]);
+            poll.options.forEach((option, index) => {
+                const choice = `poll:${index}`;
+                const count = [...votes.values()].filter((vote) => vote.emoji === choice).length;
+                panel.appendChild(button(`${option} · ${count}`, "poll-option" + (mine === choice ? " selected" : ""), () => sendReaction(opened, message, mine === choice ? "" : choice)));
+            });
+            bubble.appendChild(panel);
+        }
         if (view.type === "deleted" || view.type === "error") {
             bubble.classList.add("message-muted");
             bubble.appendChild(document.createTextNode(view.type === "deleted" ? "🚫 " + view.text : view.text));
@@ -1383,7 +1397,7 @@
         bubble.appendChild(meta);
         bubble.title = parseTime(message.created_at).toLocaleString(SeresI18n.getLanguage());
         wrapper.appendChild(bubble);
-        if (reactions) {
+        if (reactions && content.type !== "poll") {
             const chips = reactionChips(opened, message, reactions);
             if (chips)
                 wrapper.appendChild(chips);
@@ -1460,7 +1474,7 @@
             const id = newMessageId();
             const payload = await SeresCrypto.encryptMessage(identity, opened.id, id, { type: "reaction", target: message.id, emoji }, members);
             await post(`/api/chats/${encodeURIComponent(opened.id)}/messages`, { id, payload, silent: true });
-            if (emoji)
+            if (emoji && !emoji.startsWith("poll:"))
                 SeresEmoji.remember(emoji);
             await syncCurrent();
         }
@@ -1880,6 +1894,31 @@
         finally {
             sending = false;
             $("send-btn").disabled = false;
+        }
+    }
+    async function createPoll() {
+        const opened = current;
+        if (!opened || opened.details?.type !== "group")
+            return;
+        const question = window.prompt(t("poll.question"))?.trim();
+        if (!question)
+            return;
+        const answers = window.prompt(t("poll.options"));
+        if (answers === null)
+            return;
+        const options = answers.split("\n").map((option) => option.trim()).filter(Boolean);
+        if (question.length > 200 || options.length < 2 || options.length > 10 || options.some((option) => option.length > 100)) {
+            showAlert(t("poll.invalid"));
+            return;
+        }
+        try {
+            await sendContent(opened, { type: "poll", poll: { question, options } });
+            await syncCurrent();
+            chatsSignature = "";
+            loadChats().catch(() => { });
+        }
+        catch (error) {
+            showAlert(errorText(error));
         }
     }
     function fileKind(mime) {
@@ -3234,6 +3273,7 @@
             }
         });
         $("send-btn").addEventListener("click", sendMessage);
+        $("poll-btn").addEventListener("click", createPoll);
         $("edit-cancel").addEventListener("click", cancelEdit);
         $("reply-cancel").addEventListener("click", cancelReply);
         $("record-btn").addEventListener("click", startRecording);

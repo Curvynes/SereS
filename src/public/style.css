@@ -2377,6 +2377,10 @@ body.bright-body .language-select {
   margin-bottom: 6px;
 }
 
+.poll { display: grid; gap: 8px; min-width: 220px; margin: 8px 0; }
+.poll-option { padding: 8px 12px; border: 1px solid currentColor; border-radius: 8px; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.poll-option.selected { font-weight: 700; background: rgba(127, 127, 127, .2); }
+
 .profile-name {
   margin: 0;
   font-size: 1.3rem;
