@@ -788,6 +788,7 @@
         });
         $("chats-header").style.display = view === "chats" ? "flex" : "none";
         $("list-search").parentElement.style.display = view === "requests" ? "none" : "block";
+        document.querySelectorAll(".rail-nav[data-rail-view]").forEach((button) => button.classList.toggle("active", button.dataset.railView === view));
     }
     // ------------------------------------------------------------ open chat
     async function openChat(chatId) {
@@ -3068,8 +3069,11 @@
     function loadOwnAvatar() {
         const text = $("user-avatar-text");
         const img = $("user-avatar-img");
+        const rail = $("rail-avatar");
         text.textContent = nameOf(me).charAt(0).toUpperCase();
+        rail.textContent = text.textContent;
         $("user-avatar").style.backgroundColor = colorFor(me.username);
+        rail.style.backgroundColor = colorFor(me.username);
         fetch("/api/get_avatar", { credentials: "same-origin" })
             .then((response) => {
             if (!response.ok)
@@ -3080,6 +3084,11 @@
             img.src = URL.createObjectURL(blob);
             img.classList.remove("hidden-el");
             text.style.display = "none";
+            const railImage = document.createElement("img");
+            railImage.src = img.src;
+            railImage.alt = "";
+            rail.textContent = "";
+            rail.appendChild(railImage);
         })
             .catch(() => {
             img.classList.add("hidden-el");
@@ -3248,6 +3257,8 @@
             addPendingFiles(event.dataTransfer.files);
         });
         $("menu-toggle").addEventListener("click", () => document.querySelector(".sidebar")?.classList.toggle("open"));
+        document.querySelectorAll(".rail-nav[data-rail-view]").forEach((button) => button.addEventListener("click", () => switchView(button.dataset.railView)));
+        $("rail-settings").addEventListener("click", openSettings);
         $("user-menu-trigger").addEventListener("click", () => $("user-dropdown-menu").classList.toggle("modal-hidden"));
         $("menu-settings").addEventListener("click", (event) => {
             event.preventDefault();
