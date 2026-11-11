@@ -2251,14 +2251,15 @@ def deliver_scheduled_messages():
                             ):
                                 rev = db.next_rev(conn)
                                 cur = conn.execute(
-                                    "INSERT INTO messages (id, chat_id, sender_id, kind, payload, created_at, rev, expires_at) VALUES (?, ?, ?, 'e2e', ?, ?, ?, ?)",
+                                    "INSERT OR IGNORE INTO messages (id, chat_id, sender_id, kind, payload, created_at, rev, expires_at) VALUES (?, ?, ?, 'e2e', ?, ?, ?, ?)",
                                     (item["id"], item["chat_id"], item["sender_id"], item["payload"], db.now_iso(), rev,
                                      (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=chat["disappear_seconds"])).strftime("%Y-%m-%dT%H:%M:%SZ") if chat["disappear_seconds"] else None),
                                 )
-                                conn.execute("UPDATE chats SET last_activity = ? WHERE id = ?", (db.now_iso(), item["chat_id"]))
-                                conn.execute("UPDATE chat_members SET hidden = 0 WHERE chat_id = ?", (item["chat_id"],))
-                                conn.execute("UPDATE chat_members SET last_read_seq = ?, delivered_seq = ? WHERE chat_id = ? AND user_id = ?",
-                                             (cur.lastrowid, cur.lastrowid, item["chat_id"], item["sender_id"]))
+                                if cur.rowcount:
+                                    conn.execute("UPDATE chats SET last_activity = ? WHERE id = ?", (db.now_iso(), item["chat_id"]))
+                                    conn.execute("UPDATE chat_members SET hidden = 0 WHERE chat_id = ?", (item["chat_id"],))
+                                    conn.execute("UPDATE chat_members SET last_read_seq = ?, delivered_seq = ? WHERE chat_id = ? AND user_id = ?",
+                                                 (cur.lastrowid, cur.lastrowid, item["chat_id"], item["sender_id"]))
                         conn.execute("DELETE FROM scheduled_messages WHERE id = ?", (item["id"],))
             finally:
                 conn.close()
