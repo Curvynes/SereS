@@ -10,7 +10,6 @@
   </head>
   <body>
     <nav class="app-rail" aria-label="Main navigation">
-      <div class="brand-mark" aria-label="SereS">S</div>
       <button class="rail-nav active" type="button" data-rail-view="chats" aria-label="Chats"><span class="material-symbols-rounded">chat_bubble</span></button>
       <button class="rail-nav" type="button" data-rail-view="friends" aria-label="Friends"><span class="material-symbols-rounded">group</span></button>
       <button class="rail-nav" type="button" data-rail-view="requests" aria-label="Requests"><span class="material-symbols-rounded">person_add</span></button>
@@ -18,12 +17,6 @@
       <button class="rail-nav" id="rail-settings" type="button" aria-label="Settings"><span class="material-symbols-rounded">settings</span></button>
     </nav>
     <div class="sidebar">
-      <div class="sidebar-header">
-        <span>SereS</span>
-        <button class="add-friend-main-button" type="button" id="btn-add-friend">
-          <span class="material-symbols-rounded">person_add</span><h6 data-i18n="app.addFriend">Add Friend</h6>
-        </button>
-      </div>
       <div class="mobile-welcome">
         <span data-i18n="app.welcome">Welcome</span> <span id="mobile-username">Loading...</span>
       </div>
@@ -40,10 +33,14 @@
         </div>
 
         <div class="section-title chat-section-header" id="chats-header">
-          <span data-i18n="app.chatsHeader">Direct Messages &amp; Groups</span>
+          <span data-i18n="app.chatsHeader">Chats</span>
           <span class="section-actions">
             <button class="add-dm-button" type="button" id="btn-new-chat" title="New message" data-i18n-title="newChat.button"><span class="material-symbols-rounded">edit_square</span></button>
           </span>
+        </div>
+        <div class="section-title chat-section-header friends-section-header" id="friends-header">
+          <span data-i18n="app.tabFriends">Friends</span>
+          <button class="add-dm-button" type="button" id="btn-add-friend" title="Add friend" aria-label="Add friend"><span class="material-symbols-rounded">person_add</span></button>
         </div>
         <div class="list-search-wrap">
           <input type="search" id="list-search" name="chat-search" class="list-search" placeholder="Search..." data-i18n-placeholder="app.search" autocomplete="off" />
@@ -65,13 +62,13 @@
 
         <div class="user-dropdown modal-hidden" id="user-dropdown-menu">
           <a href="#" class="dropdown-item" id="menu-settings"><span class="material-symbols-rounded">settings</span><span data-i18n="menu.settings">Settings</span></a>
-          <a href="#" class="dropdown-item" id="menu-invite" data-i18n="invite.menu">🔗 Invite link &amp; QR code</a>
+          <a href="#" class="dropdown-item" id="menu-invite"><span class="material-symbols-rounded">link</span><span data-i18n="invite.menu">Invite link &amp; QR code</span></a>
           <hr class="dropdown-divider" />
           <a href="https://discord.gg/vx3vKcp2Kq" class="dropdown-item" target="_blank" rel="noopener noreferrer">
             <img src="assets/discord.png" alt="Discord Logo" />
             <span data-i18n="menu.discord">Visit us on Discord</span>
           </a>
-          <a href="changelog.html" class="dropdown-item"><span data-i18n="menu.changelog">📜 Changelog</span></a>
+          <a href="changelog.html" class="dropdown-item"><span class="material-symbols-rounded">history</span><span data-i18n="menu.changelog">Changelog</span></a>
           <a href="https://github.com/SereSChat/SereS" class="dropdown-item" target="_blank" rel="noopener noreferrer">
             <img src="assets/github_logo.png" alt="Github Logo" />
             <span data-i18n="menu.github">Github Repositories</span>
@@ -110,7 +107,7 @@
 
       <div class="messages-container" id="messages">
         <div class="empty-state" id="empty-state">
-          <div class="empty-state-icon">💬</div>
+          <div class="empty-state-icon material-symbols-rounded">chat_bubble</div>
           <h2>SereS</h2>
           <p data-i18n="app.emptyState">Pick a chat or start a new one.</p>
         </div>
@@ -123,7 +120,7 @@
         <span id="typing-bubble-text"></span>
       </div>
       <div class="edit-bar modal-hidden" id="edit-bar">
-        <span data-i18n="msg.editing">✏️ Editing message</span>
+        <span class="material-symbols-rounded">edit</span><span data-i18n="msg.editing">Editing message</span>
         <button class="edit-cancel" type="button" id="edit-cancel" aria-label="Cancel" data-i18n-aria-label="common.cancel">✕</button>
       </div>
       <div class="reply-bar modal-hidden" id="reply-bar">
@@ -272,7 +269,7 @@
     <!-- Pinned messages -->
     <div class="modal-overlay modal-hidden" id="pins-modal">
       <div class="modal-box modal-wide">
-        <h3 data-i18n="pins.title">📌 Pinned messages</h3>
+        <h3><span class="material-symbols-rounded">push_pin</span> <span data-i18n="pins.title">Pinned messages</span></h3>
         <div class="pins-body" id="pins-body"></div>
         <div class="modal-buttons">
           <button class="modal-btn cancel-btn" type="button" data-close-modal data-i18n="common.close">Close</button>
@@ -332,7 +329,7 @@
 
         <div class="settings-section">
           <p data-i18n="settings.designText">App design:</p>
-          <button class="modal-btn secondary-btn" type="button" id="theme-toggle-btn" data-i18n="settings.themeButton">🌓 Switch Light/Dark Mode</button>
+          <button class="modal-btn secondary-btn" type="button" id="theme-toggle-btn"><span class="material-symbols-rounded">contrast</span><span data-i18n="settings.themeButton">Switch Light/Dark Mode</span></button>
         </div>
 
         <div class="settings-section">
@@ -350,7 +347,7 @@
 
         <div class="settings-section">
           <p data-i18n="settings.cookiesText">Cookies:</p>
-          <button class="modal-btn secondary-btn" type="button" id="cookie-settings-btn" data-i18n="settings.cookiesButton">🍪 Cookie settings</button>
+          <button class="modal-btn secondary-btn" type="button" id="cookie-settings-btn"><span class="material-symbols-rounded">cookie</span><span data-i18n="settings.cookiesButton">Cookie settings</span></button>
           <p class="settings-hint" id="cookie-status"></p>
         </div>
 
@@ -360,12 +357,12 @@
         </div>
 
         <form class="settings-section" id="twofa-form" autocomplete="off">
-          <p data-i18n="twofa.title">🛡️ Two-factor authentication (optional):</p>
+          <p><span class="material-symbols-rounded">shield</span> <span data-i18n="twofa.title">Two-factor authentication (optional):</span></p>
           <p class="settings-hint" id="twofa-status"></p>
           <div class="twofa-list" id="twofa-list"></div>
           <input type="password" id="twofa-password" placeholder="Current password" data-i18n-placeholder="settings.oldPassword" autocomplete="current-password" />
-          <button class="modal-btn secondary-btn" type="button" id="twofa-add-passkey" data-i18n="twofa.addPasskey">🔑 Add a passkey (phone, security key, Windows Hello…)</button>
-          <button class="modal-btn secondary-btn" type="button" id="twofa-totp-button" data-i18n="twofa.setupTotp">📱 Set up an authenticator app</button>
+          <button class="modal-btn secondary-btn" type="button" id="twofa-add-passkey"><span class="material-symbols-rounded">passkey</span><span data-i18n="twofa.addPasskey">Add a passkey (phone, security key, Windows Hello…)</span></button>
+          <button class="modal-btn secondary-btn" type="button" id="twofa-totp-button"><span class="material-symbols-rounded">phonelink_lock</span><span data-i18n="twofa.setupTotp">Set up an authenticator app</span></button>
           <div class="twofa-totp modal-hidden" id="twofa-totp-setup">
             <p class="settings-hint" data-i18n="twofa.totpScan">Scan the QR code with your authenticator app (Google Authenticator, Microsoft Authenticator, Aegis, …) and enter the 6-digit code.</p>
             <div class="qr-wrap" id="twofa-qr"></div>
@@ -376,7 +373,7 @@
         </form>
 
         <form class="settings-section" id="codes-form" autocomplete="off">
-          <p data-i18n="settings.codesText">🔑 Backup codes (to set a new password if you forget yours):</p>
+          <p><span class="material-symbols-rounded">key</span> <span data-i18n="settings.codesText">Backup codes (to set a new password if you forget yours):</span></p>
           <p class="settings-hint" id="codes-status"></p>
           <input type="password" id="codes-password" placeholder="Current password" data-i18n-placeholder="settings.oldPassword" autocomplete="current-password" />
           <button class="modal-btn secondary-btn" type="submit" id="codes-generate" data-i18n="settings.codesButton">Generate new backup codes</button>
