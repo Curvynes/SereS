@@ -259,29 +259,13 @@
     return api(path, { method: "POST", body });
   }
 
-  function showAlert(message: string, duration = 4200) {
-    const stack = $("toast-stack");
-    const toast = h("div", { className: "app-toast", attrs: { role: "status" } }, [
-      h("span", { className: "material-symbols-rounded app-toast-icon", text: "info" }),
-      h("span", { className: "app-toast-message", text: message }),
-    ]);
-    const close = h("button", { className: "app-toast-close", attrs: { type: "button", "aria-label": t("common.close") } }, [
-      h("span", { className: "material-symbols-rounded", text: "close" }),
-    ]);
-    toast.appendChild(close);
-    stack.appendChild(toast);
-    while (stack.childElementCount > 4) stack.firstElementChild?.remove();
-    const dismiss = () => {
-      toast.classList.add("app-toast-exit");
-      window.setTimeout(() => toast.remove(), 220);
-    };
-    const timer = window.setTimeout(dismiss, duration);
-    close.addEventListener("click", (event) => {
-      event.stopPropagation();
-      clearTimeout(timer);
-      dismiss();
-    });
-    window.requestAnimationFrame(() => toast.classList.add("app-toast-visible"));
+  let alertTimer: number | null = null;
+  function showAlert(message: string) {
+    const box = $("alert");
+    $("alert-text").textContent = message;
+    box.classList.remove("hidden");
+    if (alertTimer !== null) clearTimeout(alertTimer);
+    alertTimer = window.setTimeout(() => box.classList.add("hidden"), 4000);
   }
 
   function errorText(error: unknown) {
@@ -607,8 +591,8 @@
           : file.kind === "voice"
             ? t("file.voice", { duration: formatDuration(file.duration || 0) })
             : file.kind === "audio"
-              ? file.name
-              : file.name;
+              ? "🎵 " + file.name
+              : "📎 " + file.name;
     return text ? label + " · " + text : label;
   }
 
@@ -636,7 +620,7 @@
     const archivedCount = chats.filter((chat) => chat.archived).length;
     if (archivedCount && !filter) {
       const toggle = h("div", { className: "list-item archive-toggle" }, [
-        h("div", { className: "avatar archive-icon" }, [h("span", { className: "material-symbols-rounded", text: showArchived ? "arrow_back" : "archive" })]),
+        h("div", { className: "avatar archive-icon", text: showArchived ? "←" : "🗄️" }),
         h("div", { className: "item-info" }, [
           h("span", { className: "item-name", text: showArchived ? t("archive.back") : t("archive.title") }),
           h("span", { className: "item-status", text: t("archive.count", { count: archivedCount }) }),
@@ -662,11 +646,11 @@
       const nameRow = h("div", { className: "item-row" }, [
         h("span", { className: "item-name" }, [
           document.createTextNode(chat.name),
-          chat.muted ? h("span", { className: "material-symbols-rounded muted-icon", text: "notifications_off", title: t("chat.muted") }) : null,
-          chat.disappear_seconds ? h("span", { className: "material-symbols-rounded muted-icon", text: "timer", title: t("disappear.title") }) : null,
+          chat.muted ? h("span", { className: "muted-icon", text: "🔕", title: t("chat.muted") }) : null,
+          chat.disappear_seconds ? h("span", { className: "muted-icon", text: "⏱️", title: t("disappear.title") }) : null,
         ]),
         h("span", { className: "item-time" }, [
-          chat.pinned ? h("span", { className: "material-symbols-rounded pin-icon", text: "push_pin", title: t("chatMenu.pinned") }) : null,
+          chat.pinned ? h("span", { className: "pin-icon", text: "📌", title: t("chatMenu.pinned") }) : null,
           document.createTextNode(formatListTime(chat.last_activity)),
         ]),
       ]);
@@ -921,7 +905,7 @@
           })
         : null,
       button(
-        t(isGroup ? "info.leave" : "info.deleteChat"),
+        isGroup ? "🚪 " + t("info.leave") : "🗑️ " + t("info.deleteChat"),
         "floating-item danger",
         action(
           isGroup ? "leave" : "delete",
@@ -977,14 +961,8 @@
 
   function renderRequests() {
     const list = $("requests-list");
-    const filter = (($("list-search") as HTMLInputElement).value || "").trim().toLowerCase();
     list.textContent = "";
-    const incoming = friends.incoming.filter((user) =>
-      !filter || user.username.toLowerCase().includes(filter) || nameOf(user).toLowerCase().includes(filter),
-    );
-    if (!incoming.length && filter) {
-      list.appendChild(h("div", { className: "list-empty", text: t("search.none") }));
-    } else if (!incoming.length) {
+    if (!friends.incoming.length) {
       list.appendChild(
         h("div", { className: "list-item request-list-item" }, [
           h("div", { className: "avatar", text: "!" }),
@@ -995,7 +973,7 @@
         ]),
       );
     }
-    incoming.forEach((user) => {
+    friends.incoming.forEach((user) => {
       list.appendChild(
         userRow(user, t("requests.wants"), [
           button(t("requests.accept"), "request-action-btn accept", async () => {
@@ -1020,7 +998,6 @@
   }
 
   function switchView(view: "chats" | "friends" | "requests") {
-    document.querySelector<HTMLElement>(".list-container")!.scrollTop = 0;
     document.querySelectorAll<HTMLElement>(".list-view-toggle").forEach((btn) => {
       btn.classList.toggle("active", btn.dataset.view === view);
     });
@@ -1028,10 +1005,7 @@
       panel.classList.toggle("active", panel.dataset.panel === view);
     });
     $("chats-header").style.display = view === "chats" ? "flex" : "none";
-    $("friends-header").style.display = view === "friends" ? "flex" : "none";
-    $("requests-header").style.display = view === "requests" ? "flex" : "none";
-    $("list-search").parentElement!.style.display = "block";
-    document.querySelectorAll<HTMLElement>(".rail-nav[data-rail-view]").forEach((button) => button.classList.toggle("active", button.dataset.railView === view));
+    $("list-search").parentElement!.style.display = view === "requests" ? "none" : "block";
   }
 
   // ------------------------------------------------------------ open chat
@@ -1130,7 +1104,7 @@
 
   function emptyState() {
     return h("div", { className: "empty-state" }, [
-      h("div", { className: "empty-state-icon material-symbols-rounded", text: "chat_bubble" }),
+      h("div", { className: "empty-state-icon", text: "💬" }),
       h("h2", { text: "SereS" }),
       h("p", { text: t("app.emptyState") }),
     ]);
@@ -1157,7 +1131,7 @@
           : details.presence
             ? presenceText(details.presence)
             : t("chat.dmSub");
-    if (details.disappear_seconds) opened.subtitle = disappearLabel(details.disappear_seconds) + " · " + opened.subtitle;
+    if (details.disappear_seconds) opened.subtitle = "⏱️ " + disappearLabel(details.disappear_seconds) + " · " + opened.subtitle;
     renderSubtitle();
     renderKeyWarning();
     renderPinnedBar().catch(() => {});
@@ -1198,7 +1172,7 @@
     const shown = message ? await showMessage(opened.id, message) : null;
     bar.textContent = "";
     bar.append(
-      h("span", { className: "material-symbols-rounded pinned-icon", text: "push_pin" }),
+      h("span", { className: "pinned-icon", text: "📌" }),
       h("div", { className: "pinned-text" }, [
         h("strong", { text: pins.length > 1 ? t("pins.count", { count: pins.length }) : t("pins.one") }),
         h("span", { text: shown ? contentPreview(shown) : "…" }),
@@ -1640,7 +1614,7 @@
 
     if (view.type === "deleted" || view.type === "error") {
       bubble.classList.add("message-muted");
-      bubble.appendChild(document.createTextNode(view.text));
+      bubble.appendChild(document.createTextNode(view.type === "deleted" ? "🚫 " + view.text : view.text));
     } else if (view.text) {
       const myNames = [me.username.toLowerCase(), nameOf(me).toLowerCase()];
       const formatted = SeresFormat.render(view.text, { myNames, onMention: (name) => openProfile(name) });
@@ -1651,7 +1625,7 @@
     }
 
     const meta = h("span", { className: "message-meta" });
-    if (message.expires_at) meta.appendChild(h("span", { className: "material-symbols-rounded message-expiry", text: "timer", title: t("disappear.expires", { time: formatDateTime(message.expires_at) }) }));
+    if (message.expires_at) meta.appendChild(h("span", { className: "message-expiry", text: "⏱️", title: t("disappear.expires", { time: formatDateTime(message.expires_at) }) }));
     if (message.edited_at) meta.appendChild(h("span", { className: "message-edited", text: t("msg.edited") }));
     if (compact) meta.appendChild(h("span", { className: "message-time-inline", text: formatTime(message.created_at) }));
     if (own && message.kind === "e2e") meta.appendChild(ticks(opened, message));
@@ -1800,7 +1774,7 @@
       const isVideo = file.kind === "video";
       const media = h(isVideo ? "video" : "audio", { className: isVideo ? "message-video" : "message-audio", attrs: { controls: "", preload: "metadata" } });
       const wrap = h("div", { className: "message-media" + (file.kind === "voice" ? " voice" : "") }, [
-        file.kind === "voice" ? h("span", { className: "material-symbols-rounded voice-icon", text: "mic" }) : null,
+        file.kind === "voice" ? h("span", { className: "voice-icon", text: "🎤" }) : null,
         media,
       ]);
       fileUrl(chatId, file)
@@ -1809,7 +1783,7 @@
       return wrap;
     }
     const card = h("div", { className: "file-card" }, [
-      h("span", { className: "material-symbols-rounded file-icon", text: "description" }),
+      h("span", { className: "file-icon", text: "📄" }),
       h("div", { className: "file-info" }, [
         h("strong", { text: file.name }),
         h("span", { text: formatSize(file.size) }),
@@ -1892,14 +1866,14 @@
     element.addEventListener("touchcancel", end);
   }
 
-  /** Symbol indicators show sent, delivered, and read status. */
+  /** ✓ sent, ✓✓ delivered to everyone, blue ✓✓ seen by everyone. */
   function ticks(opened: OpenChat, message: Message) {
     const receipts = opened.receipts;
     const read = !!receipts && receipts.read_seq >= message.seq;
     const delivered = read || (!!receipts && receipts.delivered_seq >= message.seq);
     return h("span", {
-      className: "message-ticks material-symbols-rounded" + (read ? " read" : delivered ? " delivered" : ""),
-      text: delivered ? "done_all" : "check",
+      className: "message-ticks" + (read ? " read" : delivered ? " delivered" : ""),
+      text: delivered ? "✓✓" : "✓",
       title: t(read ? "msgInfo.read" : delivered ? "msgInfo.delivered" : "msgInfo.sent"),
     });
   }
@@ -2004,11 +1978,11 @@
     body.textContent = "";
     const line = (icon: string, label: string, done: boolean, at: string | null) =>
       h("div", { className: "info-line" + (done ? " done" : "") }, [
-        h("span", { className: "info-icon material-symbols-rounded", text: icon }),
+        h("span", { className: "info-icon", text: icon }),
         h("span", { className: "info-label", text: label }),
-        h("span", { className: "info-time" }, [done ? (at ? document.createTextNode(formatDateTime(at)) : h("span", { className: "material-symbols-rounded", text: "check" })) : document.createTextNode(t("msgInfo.notYet"))]),
+        h("span", { className: "info-time", text: done ? (at ? formatDateTime(at) : "✓") : t("msgInfo.notYet") }),
       ]);
-    body.appendChild(line("schedule", t("msgInfo.sent"), true, data.sent_at));
+    body.appendChild(line("🕓", t("msgInfo.sent"), true, data.sent_at));
     if (!data.members.length) body.appendChild(h("p", { className: "list-hint", text: t("msgInfo.noRecipients") }));
     for (const member of data.members) {
       body.appendChild(
@@ -2017,8 +1991,8 @@
             avatarEl(member.username, { label: nameOf(member) }),
             h("strong", { text: nameOf(member) }),
           ]),
-          line("check", t("msgInfo.delivered"), member.delivered, member.delivered_at),
-          line("done_all", t("msgInfo.read"), member.read, member.read_at),
+          line("✓", t("msgInfo.delivered"), member.delivered, member.delivered_at),
+          line("✓✓", t("msgInfo.read"), member.read, member.read_at),
         ]),
       );
     }
@@ -2995,7 +2969,7 @@
           const code = await SeresCrypto.safetyNumber(myFp, fp);
           row.appendChild(
             button(t("info.code"), "request-action-btn more", () => {
-              showAlert(t("info.codeAlert", { name: nameOf(member), code }), 10000);
+              window.alert(t("info.codeAlert", { name: nameOf(member), code }));
             }),
           );
           row.appendChild(verifyToggle(member.id, fp, verified, true));
@@ -3121,7 +3095,7 @@
       avatarEl(user.username, { className: "avatar profile-avatar", label: name }),
       h("h3", { className: "profile-name", text: name }),
       h("span", { className: "profile-username", text: "@" + user.username }),
-      h("span", { className: "profile-status" }, [data.muted ? h("span", { className: "material-symbols-rounded", text: "notifications_off" }) : null, document.createTextNode(status)]),
+      h("span", { className: "profile-status", text: (data.muted ? "🔕 " : "") + status }),
     );
     if (data.presence) {
       head.appendChild(
@@ -3222,7 +3196,7 @@
 
   async function uploadAvatar() {
     const input = $("avatar-upload-input") as HTMLInputElement;
-    const warning = $("avatar-warning");
+    const warning = $("settings-warning");
     warning.textContent = "";
     const file = input.files && input.files[0];
     if (!file) {
@@ -3249,7 +3223,7 @@
   }
 
   async function changePassword() {
-    const warning = $("password-warning");
+    const warning = $("settings-warning");
     const oldPw = ($("old-password") as HTMLInputElement).value;
     const newPw = ($("new-password") as HTMLInputElement).value;
     const repeat = ($("new-password-repeat") as HTMLInputElement).value;
@@ -3371,7 +3345,7 @@
   }
 
   async function saveDisplayName() {
-    const warning = $("display-name-warning");
+    const warning = $("settings-warning");
     warning.textContent = "";
     try {
       const data = await post("/api/profile/display_name", {
@@ -3442,7 +3416,7 @@
     for (const passkey of data.passkeys) {
       list.appendChild(
         h("div", { className: "twofa-item" }, [
-          h("span", {}, [h("span", { className: "material-symbols-rounded", text: "passkey" }), document.createTextNode(" " + passkey.name)]),
+          h("span", { text: "🔑 " + passkey.name }),
           h("span", {
             className: "twofa-meta",
             text: passkey.last_used_at ? t("twofa.lastUsed", { date: formatDateTime(passkey.last_used_at) }) : t("twofa.neverUsed"),
@@ -3465,7 +3439,7 @@
   }
 
   async function twofaAction(work: () => Promise<void>) {
-    const warning = $("twofa-warning");
+    const warning = $("settings-warning");
     warning.textContent = "";
     try {
       await work();
@@ -3541,7 +3515,7 @@
 
   /** Makes 10 new backup codes (old ones stop working) and shows them once. */
   async function generateCodes() {
-    const warning = $("codes-warning");
+    const warning = $("settings-warning");
     const passwordInput = $("codes-password") as HTMLInputElement;
     const password = passwordInput.value;
     warning.textContent = "";
@@ -3581,9 +3555,7 @@
     $("twofa-totp-setup").classList.add("modal-hidden");
     renderSettingsToggles();
     $("user-dropdown-menu").classList.add("modal-hidden");
-    ["display-name-warning", "avatar-warning", "twofa-warning", "codes-warning", "password-warning"].forEach((id) => {
-      $(id).textContent = "";
-    });
+    $("settings-warning").textContent = "";
     ($("display-name-input") as HTMLInputElement).value = nameOf(me);
     showCookieStatus();
     openModal("settings-modal");
@@ -3694,29 +3666,6 @@
   }
 
   function bindEvents() {
-    const resizer = $("pane-resizer");
-    const savedWidth = Number(localStorage.getItem("seres-sidebar-width")) || 450;
-    document.documentElement.style.setProperty("--sidebar-width", `${Math.min(640, Math.max(340, savedWidth))}px`);
-    const resizeAt = (clientX: number) => {
-      const width = Math.min(640, Math.max(340, clientX - 72));
-      document.documentElement.style.setProperty("--sidebar-width", `${width}px`);
-      resizer.setAttribute("aria-valuenow", String(width));
-      localStorage.setItem("seres-sidebar-width", String(width));
-    };
-    resizer.addEventListener("pointerdown", (event) => {
-      resizer.setPointerCapture(event.pointerId);
-      resizeAt(event.clientX);
-    });
-    resizer.addEventListener("pointermove", (event) => {
-      if (resizer.hasPointerCapture(event.pointerId)) resizeAt(event.clientX);
-    });
-    resizer.addEventListener("keydown", (event) => {
-      if (!["ArrowLeft", "ArrowRight"].includes((event as KeyboardEvent).key)) return;
-      event.preventDefault();
-      const delta = (event as KeyboardEvent).key === "ArrowLeft" ? -20 : 20;
-      const currentWidth = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--sidebar-width"), 10) || 450;
-      resizeAt(currentWidth + delta + 72);
-    });
     $("btn-add-friend").addEventListener("click", () => {
       $("warning-add-friend").textContent = "";
       openModal("add-friend-modal");
@@ -3797,9 +3746,12 @@
       event.preventDefault();
       addPendingFiles(event.dataTransfer.files);
     });
-    document.querySelectorAll<HTMLElement>(".rail-nav[data-rail-view]").forEach((button) => button.addEventListener("click", () => switchView(button.dataset.railView as "chats" | "friends" | "requests")));
-    $("rail-settings").addEventListener("click", openSettings);
+    $("menu-toggle").addEventListener("click", () => document.querySelector(".sidebar")?.classList.toggle("open"));
     $("user-menu-trigger").addEventListener("click", () => $("user-dropdown-menu").classList.toggle("modal-hidden"));
+    $("menu-settings").addEventListener("click", (event) => {
+      event.preventDefault();
+      openSettings();
+    });
     $("menu-logout").addEventListener("click", (event) => {
       event.preventDefault();
       logout();
@@ -3854,7 +3806,6 @@
       chatsSignature = "";
       loadChats().catch(() => {});
       renderFriends();
-      renderRequests();
     });
 
     document.querySelectorAll<HTMLElement>("[data-close-modal]").forEach((btn) => {
@@ -3983,7 +3934,7 @@
     if (recoveredBy === "code") {
       // Point to the backup codes, one of them was just used.
       await openSettings();
-      $("codes-warning").textContent = t("recover.doneCode");
+      $("settings-warning").textContent = t("recover.doneCode");
       $("codes-form").scrollIntoView({ block: "center" });
     }
     if (pendingInvite) {
