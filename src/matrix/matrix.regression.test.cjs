@@ -7,16 +7,23 @@ const { JSDOM } = require('jsdom');
 const { EventEmitter } = require('node:events');
 const source = readFileSync(resolve(__dirname, '../frontend/matrix.ts'), 'utf8').replace(/^import .*;\r?\n/gm, '');
 const compiled = ts.transpileModule(source + `
-window.testApi = { renderRoom, renderRoomList, saveSession, savedSession, cryptoStoreName, matrixServerName, showCall, stop, activate, connect, openMatrixRtc, joinRoomPrompt, joinRoomTarget, parseRoomTarget, handleRoomUpdate,
+window.testApi = { renderRoom, renderRoomList, saveSession, savedSession, cryptoStoreName, matrixServerName, showCall, stop, activate, connect, openMatrixRtc, joinRoomPrompt, joinRoomTarget, parseRoomTarget, handleRoomUpdate, createRoom, inviteToRoom, addJitsi,
   setClient(value) { client = value; },
   select(room, thread = '') { selectedRoomId = room; threadRootId = thread; },
   space(id) { selectedSpaceId = id; },
+  markThreadRead, setActive(value) { active = value; },
   drafts, mediaNodes,
 };`, { compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.None } }).outputText;
 function environment() {
   const dom = new JSDOM('<div class="sidebar"></div><div id="matrix-list"></div><div id="matrix-app-root"></div>', { url: 'https://seres.example/index.html', runScripts: 'outside-only' });
   const w = dom.window;
+  w.prompt = () => { throw new Error('prompt() is not supported.'); };
+  w.HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
+  w.HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); };
   w.sdk = { EventType: { RoomMessage: 'm.room.message' }, KnownMembership: { Join: 'join', Invite: 'invite' }, NotificationCountType: { Total: 'total' }, CallEvent: { FeedsChanged: 'feeds', State: 'state', Hangup: 'hangup', Error: 'error' }, MatrixEventEvent: { Decrypted: 'decrypted' }, RoomMemberEvent: { Name: 'memberName' }, UserEvent: { DisplayName: 'displayName' }, RoomEvent: { Timeline: 'timeline', Name: 'name', MyMembership: 'membership' }, ClientEvent: { Sync: 'sync', Room: 'room' }, SyncState: { Prepared: 'prepared' } };
+  w.sdk.RoomEvent.LocalEchoUpdated = 'Room.localEchoUpdated';
+  w.sdk.RoomEvent.UnreadNotifications = 'Room.UnreadNotifications';
+  w.sdk.ThreadEvent = { Update: 'Thread.update', NewReply: 'Thread.newReply' };
   w.URL.revokeObjectURL = () => {};
   w.eval(compiled);
   const api = w.testApi;
@@ -37,7 +44,80 @@ function type(w, value) {
   input.dispatchEvent(new w.Event('input'));
 }
 function submit(w) { w.document.querySelector('.matrix-compose').dispatchEvent(new w.Event('submit', { cancelable: true })); }
+function submitDialog(e, values) {
+  const form = e.w.document.querySelector('.matrix-input-form');
+  if (values) form.querySelectorAll('input').forEach((input, i) => { input.value = values[i] || ''; });
+  form.dispatchEvent(new e.w.Event('submit', { cancelable: true }));
+}
 const tick = () => new Promise((resolve) => setImmediate(resolve));
+
+test('rooms and Spaces can be created without browser prompts', async () => {
+  const e = environment();
+  try {
+    e.w.sdk.Visibility = { Private: 'private' };
+    e.w.sdk.Preset = { PrivateChat: 'private_chat' };
+    e.w.sdk.EventType.RoomEncryption = 'm.room.encryption';
+    const requests = [];
+    e.matrix.createRoom = async (options) => { requests.push(options); return { room_id: '!created:example.org' }; };
+    for (const isSpace of [false, true]) {
+      const task = e.api.createRoom(isSpace);
+      assert.equal(e.w.document.activeElement, e.w.document.querySelector('.matrix-input-dialog input'));
+      submitDialog(e, [' New name ', '@alex:matrix.org, @alex:matrix.org']);
+      await task;
+      assert.equal(e.w.document.querySelector('dialog'), null);
+    }
+    assert.equal(requests.length, 2);
+    assert.equal(requests[0].name, 'New name');
+    assert.deepEqual(Array.from(requests[0].invite), ['@alex:matrix.org']);
+    assert.equal(requests[0].initial_state[0].type, 'm.room.encryption');
+    assert.equal(requests[1].creation_content.type, 'm.space');
+    assert.equal(requests[1].initial_state.length, 0);
+  } finally { e.close(); }
+});
+
+test('cancel, Escape, replacement and logout dismiss input without sending requests', async () => {
+  const e = environment();
+  try {
+    let requests = 0;
+    e.matrix.joinRoom = async () => { requests++; };
+    let task = e.api.joinRoomPrompt();
+    e.w.document.querySelector('.matrix-input-actions button').click();
+    await task;
+    task = e.api.joinRoomPrompt();
+    e.w.document.querySelector('dialog').dispatchEvent(new e.w.Event('cancel', { cancelable: true }));
+    await task;
+    task = e.api.joinRoomPrompt();
+    const replacement = e.api.joinRoomPrompt();
+    await task;
+    assert.equal(e.w.document.querySelectorAll('dialog').length, 1);
+    await e.api.stop();
+    await replacement;
+    assert.equal(e.w.document.querySelector('dialog'), null);
+    assert.equal(requests, 0);
+  } finally { e.close(); }
+});
+
+test('invites validate IDs and Jitsi input stays bound to the original room', async () => {
+  const e = environment();
+  try {
+    const invites = [];
+    e.matrix.invite = async (...args) => { invites.push(args); };
+    let task = e.api.inviteToRoom('!a:example.org');
+    submitDialog(e, ['invalid']); await task;
+    assert.equal(invites.length, 0);
+    task = e.api.inviteToRoom('!a:example.org');
+    submitDialog(e, ['@alex:matrix.org']); await task;
+    assert.deepEqual(invites[0], ['!a:example.org', '@alex:matrix.org']);
+    const writes = [];
+    e.matrix.sendStateEvent = async (...args) => { writes.push(args); };
+    task = e.api.addJitsi();
+    assert.match(e.w.document.querySelector('dialog input').value, /^https:\/\/meet.jit.si\//);
+    e.api.select('!b:example.org');
+    submitDialog(e, ['https://meet.jit.si/seres-test']); await task;
+    assert.equal(writes[0][0], '!a:example.org');
+    assert.equal(writes[0][2].roomId, '!a:example.org');
+  } finally { e.close(); }
+});
 
 test('drafts are isolated by room and thread and survive rerenders', () => {
   const e = environment();
@@ -75,6 +155,178 @@ test('failed sends retain the draft and reenable the composer', async () => {
     e.api.renderRoom(); type(e.w, 'retry this'); submit(e.w); await tick();
     assert.equal(e.w.document.querySelector('textarea').value, 'retry this');
     assert.equal(e.w.document.querySelector('textarea').disabled, false);
+  } finally { e.close(); }
+});
+
+test('Enter sends room and thread messages while Shift+Enter and IME input keep editing', async () => {
+  const e = environment();
+  try {
+    const sends = [];
+    e.matrix.sendEvent = async (...args) => { sends.push(args); };
+    for (const thread of ['', '$thread']) {
+      e.api.select('!a:example.org', thread);
+      e.api.renderRoom(); type(e.w, 'Hello');
+      const input = e.w.document.querySelector('.matrix-compose-input');
+      for (const options of [{ shiftKey: true }, { isComposing: true }, { keyCode: 229 }]) {
+        const key = new e.w.KeyboardEvent('keydown', { key: 'Enter', cancelable: true, ...options });
+        input.dispatchEvent(key);
+        assert.equal(key.defaultPrevented, false);
+      }
+      const before = sends.length;
+      assert.equal(input.value, 'Hello');
+      const enter = new e.w.KeyboardEvent('keydown', { key: 'Enter', cancelable: true });
+      input.dispatchEvent(enter);
+      assert.equal(enter.defaultPrevented, true);
+      assert.equal(sends.length, before + 1);
+      assert.equal(sends.at(-1)[2].body, 'Hello');
+      assert.equal(sends.at(-1)[2]['m.relates_to']?.event_id, thread || undefined);
+      await tick();
+    }
+    assert.equal(sends.length, 2);
+  } finally { e.close(); }
+});
+
+test('own thread replies stay visible before sync and appear once after sync', () => {
+  const e = environment();
+  try {
+    const message = (id, body, thread = '') => ({
+      getId: () => id, getType: () => 'm.room.message', getSender: () => '@me:example.org', getDate: () => null,
+      getContent: () => ({ body, ...(thread ? { 'm.relates_to': { rel_type: 'm.thread', event_id: thread } } : {}) }),
+    });
+    const root = message('$root', 'My original message');
+    const reply = message('~local', 'My own reply', '$root');
+    const unrelated = message('$other', 'Another thread', '$different');
+    const roomEvents = [root, reply, unrelated];
+    const threadEvents = [root];
+    const room = e.rooms.get('!a:example.org');
+    room.getLiveTimeline = () => ({ getEvents: () => roomEvents });
+    room.getThread = () => ({ rootEvent: root, timelineSet: { getLiveTimeline: () => ({ getEvents: () => threadEvents }) } });
+    e.api.select(room.roomId, '$root');
+    e.api.renderRoom();
+    const bodies = () => Array.from(e.w.document.querySelectorAll('.matrix-message-body'), (node) => node.textContent);
+    assert.deepEqual(bodies(), ['My original message', 'My own reply']);
+    reply.getId = () => '$synced';
+    threadEvents.push(message('$synced', 'My own reply', '$root'));
+    e.api.renderRoom();
+    assert.deepEqual(bodies(), ['My original message', 'My own reply']);
+  } finally { e.close(); }
+});
+
+test('thread read receipts are scoped, deduplicated and clear only the target thread', async () => {
+  const e = environment();
+  try {
+    const room = e.rooms.get('!a:example.org');
+    const reply = (id, thread, status = null) => ({
+      getId: () => id, status, getType: () => 'm.room.message', getDate: () => null,
+      getContent: () => ({ body: id, 'm.relates_to': { rel_type: 'm.thread', event_id: thread } }),
+      getSender: () => '@other:example.org',
+    });
+    const read = reply('$read', '$root');
+    room.getLiveTimeline = () => ({ getEvents: () => [read, reply('~pending', '$root', 'sending'), reply('$other', '$another')] });
+    const counts = new Map([['$root', 2], ['$another', 3]]);
+    room.setThreadUnreadNotificationCount = (id, _type, count) => counts.set(id, count);
+    const receipts = [];
+    let finish;
+    e.matrix.sendReadReceipt = (...args) => { receipts.push(args); return new Promise((resolve) => { finish = resolve; }); };
+    const task = e.api.markThreadRead(room, '$root');
+    await e.api.markThreadRead(room, '$root');
+    assert.equal(receipts.length, 1);
+    assert.equal(receipts[0][0], read);
+    assert.equal(receipts[0].length, 1);
+    assert.equal(counts.get('$root'), 2);
+    finish(); await task;
+    assert.equal(counts.get('$root'), 0);
+    assert.equal(counts.get('$another'), 3);
+    await e.api.markThreadRead(room, '$root');
+    assert.equal(receipts.length, 1);
+  } finally { e.close(); }
+});
+
+test('thread read failures preserve unread counts and can be retried using the button', async () => {
+  const e = environment();
+  try {
+    const room = e.rooms.get('!a:example.org');
+    const reply = {
+      getId: () => '$reply', getType: () => 'm.room.message', getDate: () => null, getSender: () => '@other:example.org',
+      getContent: () => ({ body: 'Unread reply', 'm.relates_to': { rel_type: 'm.thread', event_id: '$root' } }),
+    };
+    room.getLiveTimeline = () => ({ getEvents: () => [reply] });
+    let cleared = 0;
+    room.setThreadUnreadNotificationCount = () => { cleared++; };
+    e.matrix.sendReadReceipt = async () => { throw new Error('offline'); };
+    await e.api.markThreadRead(room, '$root');
+    assert.equal(cleared, 0);
+    assert.match(e.w.document.querySelector('.matrix-toast').textContent, /offline/);
+    e.matrix.sendReadReceipt = async () => {};
+    e.api.select(room.roomId, '$root'); e.api.renderRoom();
+    Array.from(e.w.document.querySelectorAll('.matrix-header-actions button')).find((button) => button.textContent === 'Mark thread as read').click();
+    await tick();
+    assert.equal(cleared, 2);
+  } finally { e.close(); }
+});
+
+test('automatic thread reads wait for a visible active view at the bottom', async () => {
+  const e = environment();
+  try {
+    const room = e.rooms.get('!a:example.org');
+    const events = [{
+      getId: () => '$reply', getType: () => 'm.room.message', getDate: () => null, getSender: () => '@other:example.org',
+      getContent: () => ({ body: 'Reply', 'm.relates_to': { rel_type: 'm.thread', event_id: '$root' } }),
+    }];
+    room.getLiveTimeline = () => ({ getEvents: () => events });
+    room.setThreadUnreadNotificationCount = () => {};
+    let sends = 0;
+    e.matrix.sendReadReceipt = async () => { sends++; };
+    e.api.select(room.roomId, '$root');
+    e.api.renderRoom(); assert.equal(sends, 0);
+    e.api.setActive(true);
+    e.api.renderRoom(); assert.equal(sends, 0);
+    Object.defineProperty(e.w.document, 'visibilityState', { value: 'visible', configurable: true });
+    e.api.renderRoom(); await tick(); assert.equal(sends, 1);
+    events.push({ ...events[0], getId: () => '$new' });
+    const timeline = e.w.document.querySelector('.matrix-timeline');
+    Object.defineProperty(timeline, 'scrollHeight', { value: 1000, configurable: true });
+    Object.defineProperty(timeline, 'clientHeight', { value: 200, configurable: true });
+    timeline.scrollTop = 0;
+    e.api.renderRoom(); assert.equal(sends, 1);
+    timeline.scrollTop = 800;
+    timeline.dispatchEvent(new e.w.Event('scroll')); await tick(); assert.equal(sends, 2);
+  } finally { e.close(); }
+});
+
+test('room messages identify their thread replies and unread counts and open the correct thread', () => {
+  const e = environment();
+  try {
+    const message = (id, body, thread = '') => ({
+      getId: () => id, getType: () => 'm.room.message', getSender: () => '@other:example.org', getDate: () => null,
+      getContent: () => ({ body, ...(thread ? { 'm.relates_to': { rel_type: 'm.thread', event_id: thread } } : {}) }),
+    });
+    const root = message('$root', 'Original message');
+    const other = message('$other', 'Unrelated message');
+    const reply = message('$reply', 'Thread reply', '$root');
+    const events = [root, other];
+    const room = Object.assign(new EventEmitter(), e.rooms.get('!a:example.org'));
+    e.rooms.set(room.roomId, room);
+    room.getLiveTimeline = () => ({ getEvents: () => events });
+    const thread = { rootEvent: root, length: 2, timelineSet: { getLiveTimeline: () => ({ getEvents: () => [root, reply] }) } };
+    room.getThread = (id) => id === '$root' ? thread : null;
+    let unread = 1;
+    room.getThreadUnreadNotificationCount = (id) => id === '$root' ? unread : 0;
+    e.api.renderRoom();
+    const button = () => e.w.document.querySelector('[data-event-id="$root"] .matrix-thread-button');
+    assert.match(button().textContent, /2 replies in thread/);
+    assert.equal(button().querySelector('.matrix-thread-unread-count').textContent, '1 unread');
+    assert.equal(e.w.document.querySelector('[data-event-id="$other"] .matrix-thread-button').textContent, 'Reply in thread');
+    assert.equal(e.w.document.querySelectorAll('.matrix-message').length, 2);
+    thread.length = 3;
+    room.emit(e.w.sdk.ThreadEvent.Update, thread);
+    assert.match(button().textContent, /3 replies in thread/);
+    unread = 0;
+    room.emit(e.w.sdk.RoomEvent.UnreadNotifications);
+    assert.equal(button().querySelector('.matrix-thread-unread-count'), null);
+    button().click();
+    assert.equal(e.w.document.querySelector('.matrix-room-heading strong').textContent, 'Thread');
+    assert.deepEqual(Array.from(e.w.document.querySelectorAll('.matrix-message-body'), (node) => node.textContent), ['Original message', 'Thread reply']);
   } finally { e.close(); }
 });
 
@@ -124,6 +376,47 @@ test('remote audio is played once, unmutes again, and logout hangs up the call',
     e.api.renderRoom(); assert.equal(e.w.document.querySelector('audio'), audio);
     await e.api.stop(); assert.equal(hangups, 1);
     assert.equal(e.w.document.querySelector('.matrix-call-panel'), null);
+  } finally { e.close(); }
+});
+
+test('call layout hides empty video, updates its status and shows live video in one stage', async () => {
+  const e = environment();
+  try {
+    const call = new EventEmitter();
+    call.roomId = '!a:example.org'; call.state = 'ringing';
+    let remoteFeeds = []; let localFeeds = [];
+    call.getRemoteFeeds = () => remoteFeeds;
+    call.getLocalFeeds = () => localFeeds;
+    call.hangup = () => call.emit('hangup');
+    e.api.showCall(call, true);
+    const panel = e.w.document.querySelector('.matrix-call-panel');
+    const remote = panel.querySelector('.matrix-call-video');
+    const local = panel.querySelector('.matrix-call-local');
+    const placeholder = panel.querySelector('.matrix-call-placeholder');
+    assert.equal(remote.hidden, true);
+    assert.equal(local.hidden, true);
+    assert.equal(placeholder.hidden, false);
+    assert.equal(panel.querySelector('.matrix-call-status').textContent, 'Incoming call');
+    assert.equal(panel.querySelector('.matrix-call-answer-actions').hidden, false);
+    call.state = 'connected'; call.emit('state');
+    assert.equal(panel.querySelector('.matrix-call-status').textContent, 'Connected');
+    assert.match(panel.querySelector('.matrix-call-hint').textContent, /Audio call/);
+    assert.equal(panel.querySelector('.matrix-call-answer-actions').hidden, true);
+    const track = { enabled: true, readyState: 'live' };
+    const stream = { getVideoTracks: () => [track] };
+    remoteFeeds = [{ purpose: 'm.usermedia', stream, isVideoMuted: () => false }];
+    localFeeds = remoteFeeds;
+    call.emit('feeds');
+    assert.equal(remote.hidden, false);
+    assert.equal(local.hidden, false);
+    assert.equal(placeholder.hidden, true);
+    assert.equal(remote.parentElement, local.parentElement);
+    assert.equal(remote.srcObject, stream);
+    track.readyState = 'ended'; call.emit('feeds');
+    assert.equal(remote.hidden, true);
+    assert.equal(local.hidden, true);
+    assert.equal(placeholder.hidden, false);
+    await e.api.stop();
   } finally { e.close(); }
 });
 
@@ -182,6 +475,28 @@ function connectable(e, init = async () => {}) {
 }
 const account = { baseUrl: 'https://hs.example', userId: '@me:example.org', deviceId: 'DEVICE', accessToken: 'token' };
 
+test('local echo updates refresh the open thread without another participant replying', async () => {
+  const e = environment();
+  try {
+    const matrix = connectable(e);
+    await e.api.connect(account);
+    const events = [];
+    const room = e.rooms.get('!a:example.org');
+    room.getLiveTimeline = () => ({ getEvents: () => events });
+    room.getThread = () => ({ timelineSet: { getLiveTimeline: () => ({ getEvents: () => [] }) } });
+    e.api.select(room.roomId, '$root');
+    e.api.renderRoom();
+    const reply = {
+      getId: () => '~local', getType: () => 'm.room.message', getSender: () => '@me:example.org', getDate: () => null,
+      getContent: () => ({ body: 'Visible immediately', 'm.relates_to': { rel_type: 'm.thread', event_id: '$root' } }),
+    };
+    events.push(reply);
+    matrix.emit(e.w.sdk.RoomEvent.LocalEchoUpdated, reply, room);
+    assert.equal(e.w.document.querySelector('.matrix-message-body').textContent, 'Visible immediately');
+    await e.api.stop();
+  } finally { e.close(); }
+});
+
 test('concurrent connection attempts initialize crypto once; logout cancels initialization', async () => {
   const e = environment();
   try {
@@ -225,6 +540,35 @@ test('forwarded attachments sharing a media URL keep separate controls', () => {
     assert.equal(e.w.document.querySelectorAll('.matrix-attachment-button').length, 2);
     e.api.renderRoom();
     assert.equal(e.w.document.querySelectorAll('.matrix-attachment-button').length, 2);
+  } finally { e.close(); }
+});
+
+test('thread notifications identify replies and open their thread', async () => {
+  const e = environment();
+  try {
+    const matrix = connectable(e);
+    await e.api.connect(account);
+    Object.defineProperty(e.w.document, 'visibilityState', { value: 'visible', configurable: true });
+    e.api.saveSession(account);
+    e.api.activate();
+    e.api.select('!a:example.org');
+    let notification;
+    e.w.addEventListener('seres:notification', (event) => { notification = event.detail; });
+    const event = {
+      getType: () => 'm.room.message', isEncrypted: () => false, getDate: () => null,
+      getContent: () => ({ body: 'New reply', 'm.relates_to': { rel_type: 'm.thread', event_id: '$root' } }),
+      getSender: () => '@other:example.org', getId: () => '$reply',
+    };
+    const room = e.rooms.get('!a:example.org');
+    matrix.emit('timeline', event, room, false);
+    assert.match(notification.title, /Thread/);
+    notification.onClick();
+    e.api.renderRoom();
+    assert.equal(e.w.document.querySelector('.matrix-room-heading strong').textContent, 'Thread');
+    notification = undefined;
+    matrix.emit('timeline', event, room, false);
+    assert.equal(notification, undefined);
+    await e.api.stop();
   } finally { e.close(); }
 });
 
@@ -298,9 +642,8 @@ test('Matrix login panel is hidden after leaving Matrix in both themes', () => {
 test('joining a room before sync shows progress instead of a blank conversation', async () => {
   const e = environment();
   try {
-    e.w.prompt = () => '#new:example.org';
     e.matrix.joinRoom = async () => ({ ...e.rooms.get('!a:example.org'), roomId: '!new:example.org', name: 'New room' });
-    e.api.joinRoomPrompt(); await tick();
+    e.api.joinRoomPrompt(); submitDialog(e, ['#new:example.org']); await tick();
     assert.match(e.w.document.getElementById('matrix-app-root').textContent, /loading|sync|joining/i);
   } finally { e.close(); }
 });

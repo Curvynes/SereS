@@ -35,6 +35,8 @@ let lifecycle = 0;
 let activeCall: any = null;
 const drafts = new Map<string, string>();
 const pendingSends = new Set<string>();
+const threadReadEvents = new Map<string, string>();
+const pendingThreadReads = new Set<string>();
 let matrixPrepared = false;
 let authenticating = false;
 let selectedRoomId = "";
@@ -49,6 +51,9 @@ let callPanel: HTMLElement | null = null;
 let notification = "";
 let notificationTimer = 0;
 let cryptoLease: (() => void) | null = null;
+let cancelInputDialog: (() => void) | null = null;
+let observedThreadRoom: sdk.Room | null = null;
+let stopObservingThreads: (() => void) | null = null;
 const mediaObjectUrls = new Set<string>();
 const mediaNodes = new Map<string, HTMLElement>();
 
@@ -228,6 +233,9 @@ async function connectSession(session: MatrixSession) {
       }
     });
     client.on(sdk.RoomEvent.Name, handleRoomUpdate);
+    client.on(sdk.RoomEvent.LocalEchoUpdated, (_event, room) => {
+      if (room.roomId === selectedRoomId) renderRoom();
+    });
     client.on(sdk.ClientEvent.Room, handleRoomUpdate);
     client.on(sdk.RoomEvent.MyMembership, handleRoomUpdate);
     client.on(sdk.RoomMemberEvent.Name, (_event, member) => {
@@ -265,15 +273,17 @@ async function connectSession(session: MatrixSession) {
 
 function notifyMatrixMessage(event: sdk.MatrixEvent, room: sdk.Room) {
   if (!client || !matrixPrepared || event.getType() !== sdk.EventType.RoomMessage || event.getSender() === client.getUserId()) return;
-  if (active && selectedRoomId === room.roomId && document.visibilityState === "visible") return;
+  const relation = event.getContent()?.["m.relates_to"];
+  const replyThreadId = relation?.rel_type === "m.thread" ? relation.event_id || "" : "";
+  if (active && selectedRoomId === room.roomId && threadRootId === replyThreadId && document.visibilityState === "visible") return;
   window.dispatchEvent(new CustomEvent("seres:notification", { detail: {
-    title: room.name || room.roomId,
+    title: `${room.name || room.roomId}${replyThreadId ? " · Thread" : ""}`,
     body: event.getContent().body || "New Matrix message",
     tag: `matrix:${event.getId() || `${room.roomId}:${Date.now()}`}`,
     onClick: () => {
       selectedRoomId = room.roomId;
       selectedSpaceId = "";
-      threadRootId = "";
+      threadRootId = replyThreadId;
       window.dispatchEvent(new Event("seres:open-matrix"));
     },
   } }));
@@ -281,6 +291,12 @@ function notifyMatrixMessage(event: sdk.MatrixEvent, room: sdk.Room) {
 
 async function stop() {
   lifecycle++;
+  threadReadEvents.clear();
+  pendingThreadReads.clear();
+  stopObservingThreads?.();
+  stopObservingThreads = null;
+  observedThreadRoom = null;
+  cancelInputDialog?.();
   activeCall?.hangup("user_hangup", false);
   activeCall = null;
   callPanel?.querySelector("iframe")?.setAttribute("src", "about:blank");
@@ -473,6 +489,72 @@ function matrixTimestamp(date: Date | null) {
   };
 }
 
+function observeThreads(room: sdk.Room | null) {
+  if (observedThreadRoom === room) return;
+  stopObservingThreads?.();
+  observedThreadRoom = room;
+  stopObservingThreads = null;
+  if (!room?.on) return;
+  const update = () => { renderRoomList(); renderRoom(); };
+  room.on(sdk.ThreadEvent.Update, update);
+  room.on(sdk.ThreadEvent.NewReply, update);
+  room.on(sdk.RoomEvent.UnreadNotifications, update);
+  stopObservingThreads = () => {
+    room.off(sdk.ThreadEvent.Update, update);
+    room.off(sdk.ThreadEvent.NewReply, update);
+    room.off(sdk.RoomEvent.UnreadNotifications, update);
+  };
+}
+
+function threadSummary(room: sdk.Room, rootId: string, events: sdk.MatrixEvent[]) {
+  const thread = room.getThread(rootId);
+  const replies = new Map<string | sdk.MatrixEvent, sdk.MatrixEvent>();
+  for (const event of [...events, ...(thread?.timelineSet.getLiveTimeline().getEvents() || [])]) {
+    const relation = event.getContent()?.["m.relates_to"];
+    if (relation?.rel_type === "m.thread" && relation.event_id === rootId) replies.set(event.getId() || event, event);
+  }
+  const count = Math.max(thread?.length || 0, replies.size);
+  const unread = room.getThreadUnreadNotificationCount?.(rootId, sdk.NotificationCountType.Total) || 0;
+  return { count, unread };
+}
+
+function latestThreadReply(room: sdk.Room, rootId: string) {
+  const thread = room.getThread(rootId);
+  const events = [...room.getLiveTimeline().getEvents(), ...(thread?.timelineSet.getLiveTimeline().getEvents() || [])];
+  return events.filter((event) => {
+    const relation = event.getContent()?.["m.relates_to"];
+    return event.getId()?.startsWith("$") && !event.status && relation?.rel_type === "m.thread" && relation.event_id === rootId;
+  }).sort((a, b) => (a.getDate()?.getTime() || 0) - (b.getDate()?.getTime() || 0)).pop();
+}
+
+async function markThreadRead(room: sdk.Room, rootId: string) {
+  const matrix = client;
+  const generation = lifecycle;
+  const event = latestThreadReply(room, rootId);
+  const eventId = event?.getId();
+  const key = JSON.stringify([room.roomId, rootId]);
+  if (!matrix || !event || !eventId || pendingThreadReads.has(key) || threadReadEvents.get(key) === eventId) return;
+  pendingThreadReads.add(key);
+  try {
+    // Keep this receipt scoped to the thread; an unthreaded receipt clears other threads too.
+    await matrix.sendReadReceipt(event);
+    if (client !== matrix || generation !== lifecycle) return;
+    threadReadEvents.set(key, eventId);
+    if (latestThreadReply(room, rootId)?.getId() === eventId) {
+      room.setThreadUnreadNotificationCount(rootId, sdk.NotificationCountType.Total, 0);
+      room.setThreadUnreadNotificationCount(rootId, sdk.NotificationCountType.Highlight, 0);
+    }
+  } catch (error) {
+    if (client === matrix && generation === lifecycle) notify(`Could not mark thread as read: ${safeError(error)}`);
+  } finally {
+    if (client === matrix && generation === lifecycle) {
+      pendingThreadReads.delete(key);
+      if (threadReadEvents.get(key) === eventId && selectedRoomId === room.roomId && threadRootId === rootId
+        && latestThreadReply(room, rootId)?.getId() !== eventId) renderRoom();
+    }
+  }
+}
+
 function renderRoom() {
   const matrix = client;
   const oldComposer = root().querySelector<HTMLTextAreaElement>(".matrix-compose-input");
@@ -486,6 +568,7 @@ function renderRoom() {
   const previousScrollTop = oldTimeline?.scrollTop || 0;
   const shouldScrollToBottom = !oldTimeline || oldTimeline.scrollHeight - oldTimeline.scrollTop - oldTimeline.clientHeight < 48;
   const shell = h("section", "matrix-room-shell");
+  observeThreads(matrix && selectedRoomId ? matrix.getRoom(selectedRoomId) || null : null);
   shell.dataset.context = composerKey;
   if (!matrix || !selectedRoomId) {
     const welcome = h("div", "matrix-welcome", "Select a Matrix room or create an encrypted room.");
@@ -515,6 +598,7 @@ function renderRoom() {
     back.type = "button";
     back.onclick = () => { threadRootId = ""; renderRoom(); };
     actions.append(back);
+    actions.append(action("Mark thread as read", () => void markThreadRead(room, threadRootId)));
   } else {
     actions.append(action("Invite", () => inviteToRoom(room.roomId)), action("1:1 voice", () => placeCall(false)), action("1:1 video", () => placeCall(true)), action("Jitsi", () => addJitsi()), action("MatrixRTC", () => openMatrixRtc(room)));
   }
@@ -524,13 +608,18 @@ function renderRoom() {
   const body = h("div", "matrix-timeline");
   const events = room.getLiveTimeline().getEvents();
   const thread = threadRootId ? room.getThread(threadRootId) : null;
-  const threadEvents = thread?.timelineSet.getLiveTimeline().getEvents() || events;
+  // Local echoes initially live in the room timeline, even when a thread already exists.
+  // Prefer the thread's copy once sync adds the same event there.
+  const threadEvents = new Map<string | sdk.MatrixEvent, sdk.MatrixEvent>();
+  for (const event of [...events, ...(thread?.timelineSet.getLiveTimeline().getEvents() || [])]) {
+    threadEvents.set(event.getId() || event, event);
+  }
   const threadRoot = threadRootId ? thread?.rootEvent || events.find((event) => event.getId() === threadRootId) : undefined;
   const filtered = threadRootId
-    ? [threadRoot, ...threadEvents.filter((event) => {
+    ? [threadRoot, ...Array.from(threadEvents.values()).filter((event) => {
       const relation = event.getContent()?.["m.relates_to"];
       return relation?.rel_type === "m.thread" && relation?.event_id === threadRootId;
-    })].filter((event): event is sdk.MatrixEvent => !!event)
+    }).sort((a, b) => (a.getDate()?.getTime() || 0) - (b.getDate()?.getTime() || 0))].filter((event): event is sdk.MatrixEvent => !!event)
     : events.filter((event) => !event.getContent()?.["m.relates_to"]?.rel_type);
 
   for (const event of filtered.slice(-150)) {
@@ -540,7 +629,8 @@ function renderRoom() {
     row.dataset.eventId = event.getId() || "";
     const senderName = matrixSenderName(event, room);
     const time = matrixTimestamp(event.getDate());
-    row.dataset.signature = JSON.stringify([event.getType(), content, senderName, time]);
+    const replies = !threadRootId && event.getId() ? threadSummary(room, event.getId()!, events) : null;
+    row.dataset.signature = JSON.stringify([event.getType(), content, senderName, time, replies]);
     const sender = h("strong", "matrix-message-sender", senderName);
     sender.title = event.getSender() || "";
     const stamp = h("time", "matrix-message-time", time.label);
@@ -550,7 +640,14 @@ function renderRoom() {
     row.append(h("div", "matrix-message-body", content.body || (event.isEncrypted() ? "Encrypted message could not be decrypted yet." : "Unsupported message")));
     appendAttachment(row, content, matrix);
     if (!threadRootId && event.getId()) {
-      const thread = h("button", "matrix-thread-button", "Reply in thread");
+      const label = replies?.count
+        ? `${replies.count} ${replies.count === 1 ? "reply" : "replies"} in thread`
+        : "Reply in thread";
+      const thread = h("button", "matrix-thread-button", label);
+      if (replies?.unread) {
+        thread.classList.add("matrix-thread-unread");
+        thread.append(h("span", "matrix-thread-unread-count", `${replies.unread} unread`));
+      }
       thread.type = "button";
       thread.onclick = () => { threadRootId = event.getId()!; renderRoom(); };
       row.append(thread);
@@ -567,6 +664,11 @@ function renderRoom() {
   text.value = composerValue;
   text.dataset.composerKey = composerKey;
   text.oninput = () => drafts.set(composerKey, text.value);
+  text.onkeydown = (event) => {
+    if (event.key !== "Enter" || event.shiftKey || event.isComposing || event.keyCode === 229) return;
+    event.preventDefault();
+    if (!event.repeat && !text.disabled) compose.requestSubmit();
+  };
   text.disabled = composerDisabled;
   const attachmentButton = h("button", "matrix-small-button", "Attach");
   attachmentButton.type = "button";
@@ -631,7 +733,17 @@ function renderRoom() {
     if (composerSelection !== null) text.setSelectionRange(composerSelection, composerSelection);
   }
   const mountedTimeline = root().querySelector<HTMLElement>(".matrix-timeline");
-  if (mountedTimeline) mountedTimeline.scrollTop = shouldScrollToBottom ? mountedTimeline.scrollHeight : previousScrollTop;
+  if (mountedTimeline) {
+    mountedTimeline.scrollTop = shouldScrollToBottom ? mountedTimeline.scrollHeight : previousScrollTop;
+    const markVisibleThreadRead = () => {
+      if (active && document.visibilityState === "visible" && threadRootId && root().querySelector(".matrix-timeline") === mountedTimeline
+        && mountedTimeline.scrollHeight - mountedTimeline.scrollTop - mountedTimeline.clientHeight < 48) {
+        void markThreadRead(room, threadRootId);
+      }
+    };
+    mountedTimeline.onscroll = markVisibleThreadRead;
+    markVisibleThreadRead();
+  }
 }
 
 function appendAttachment(row: HTMLElement, content: any, matrix: sdk.MatrixClient) {
@@ -733,11 +845,62 @@ function action(label: string, onClick: () => void) {
   return button;
 }
 
+function requestMatrixInput(title: string, fields: { label: string; value?: string; optional?: boolean }[], submitLabel: string): Promise<string[] | null> {
+  cancelInputDialog?.();
+  return new Promise((resolve) => {
+    const dialog = h("dialog", "matrix-input-dialog");
+    const form = h("form", "matrix-input-form");
+    const heading = h("h2", "", title);
+    heading.id = "matrix-input-title";
+    dialog.setAttribute("aria-labelledby", heading.id);
+    form.append(heading);
+    const inputs = fields.map((field) => {
+      const label = h("label", "matrix-input-label", field.label);
+      const input = h("input", "matrix-field");
+      input.type = "text";
+      input.required = !field.optional;
+      input.value = field.value || "";
+      label.append(input);
+      form.append(label);
+      return input;
+    });
+    const finish = (values: string[] | null) => {
+      cancelInputDialog = null;
+      dialog.close();
+      dialog.remove();
+      resolve(values);
+    };
+    const cancel = action("Cancel", () => finish(null));
+    const submit = h("button", "matrix-send", submitLabel);
+    submit.type = "submit";
+    const actions = h("div", "matrix-input-actions");
+    actions.append(cancel, submit);
+    form.append(actions);
+    form.onsubmit = (event) => {
+      event.preventDefault();
+      if (form.reportValidity()) finish(inputs.map((input) => input.value.trim()));
+    };
+    dialog.oncancel = (event) => { event.preventDefault(); finish(null); };
+    dialog.append(form);
+    document.body.append(dialog);
+    cancelInputDialog = () => finish(null);
+    dialog.showModal();
+    inputs[0]?.focus();
+  });
+}
+
 async function createRoom(isSpace: boolean) {
-  if (!client) return;
-  const name = prompt(isSpace ? "Name this Space" : "Name this encrypted room");
-  if (!name?.trim()) return;
-  const invitees = (prompt("Invite Matrix user IDs, separated by commas (optional)") || "")
+  const matrix = client;
+  const generation = lifecycle;
+  const parentSpaceId = !isSpace ? selectedSpaceId : "";
+  if (!matrix) return;
+  const values = await requestMatrixInput(isSpace ? "Create Space" : "Create encrypted room", [
+    { label: isSpace ? "Space name" : "Room name" },
+    { label: "Invite Matrix user IDs, separated by commas (optional)", optional: true },
+  ], "Create");
+  if (!values || !values[0] || client !== matrix || generation !== lifecycle) return;
+  const [name, inviteList] = values;
+  const invitees = inviteList
     .split(",").map((userId) => userId.trim()).filter(Boolean);
   if (invitees.some((userId) => !/^@[^:\s]+:.+/.test(userId))) {
     notify("Enter full Matrix IDs such as @alex:matrix.org.");
@@ -746,11 +909,11 @@ async function createRoom(isSpace: boolean) {
   try {
     const initial_state: any[] = [];
     if (!isSpace) initial_state.push({ type: sdk.EventType.RoomEncryption, state_key: "", content: { algorithm: "m.megolm.v1.aes-sha2" } });
-    const parentSpaceId = !isSpace ? selectedSpaceId : "";
-    const result = await client.createRoom({
+    const result = await matrix.createRoom({
       name: name.trim(), visibility: sdk.Visibility.Private, preset: sdk.Preset.PrivateChat, initial_state, invite: [...new Set(invitees)],
       ...(isSpace ? { creation_content: { type: "m.space" } } : {}),
     });
+    if (client !== matrix || generation !== lifecycle) return;
     if (parentSpaceId) {
       try { await linkRoomToSpace(parentSpaceId, result.room_id); }
       catch (error) { notify(`Room created, but could not add it to the Space: ${safeError(error)}`); }
@@ -767,12 +930,16 @@ function matrixServerName(id: string) {
   return id.slice(id.indexOf(":") + 1);
 }
 
-function inviteToRoom(roomId: string) {
-  if (!client) return;
-  const userId = prompt("Matrix user ID to invite (for example @alex:matrix.org)");
+async function inviteToRoom(roomId: string) {
+  const matrix = client;
+  const generation = lifecycle;
+  if (!matrix) return;
+  const values = await requestMatrixInput("Invite to room", [{ label: "Matrix user ID (for example @alex:matrix.org)" }], "Invite");
+  if (!values || client !== matrix || generation !== lifecycle) return;
+  const [userId] = values;
   if (!userId?.trim()) return;
   if (!/^@[^:\s]+:.+/.test(userId.trim())) { notify("Enter a full Matrix ID such as @alex:matrix.org."); return; }
-  void client.invite(roomId, userId.trim()).then(() => notify(`Invited ${userId.trim()}`)).catch((error) => notify(safeError(error)));
+  void matrix.invite(roomId, userId.trim()).then(() => notify(`Invited ${userId.trim()}`)).catch((error) => notify(safeError(error)));
 }
 
 async function linkRoomToSpace(spaceId: string, roomId: string) {
@@ -857,26 +1024,35 @@ async function joinRoomTarget(value: string) {
   }
 }
 
-function joinRoomPrompt() {
-  if (!client || joiningTarget) return;
-  const room = prompt("Enter a full Matrix room alias (#room:server), room ID (!id:server), or matrix.to link");
+async function joinRoomPrompt() {
+  const matrix = client;
+  const generation = lifecycle;
+  if (!matrix || joiningTarget) return;
+  const values = await requestMatrixInput("Join room", [{ label: "Room alias (#room:server), room ID (!id:server), or matrix.to link" }], "Join");
+  if (!values || client !== matrix || generation !== lifecycle) return;
+  const [room] = values;
   if (room?.trim()) void joinRoomTarget(room);
 }
 
 async function addJitsi() {
-  if (!client || !selectedRoomId) return;
-  const room = client.getRoom(selectedRoomId);
-  const suggested = `https://meet.jit.si/${selectedRoomId.replace(/[^a-zA-Z0-9]/g, "").slice(0, 36)}`;
-  const url = prompt("Jitsi meeting URL (Jitsi is a separate service and is not Matrix end-to-end encrypted)", suggested);
+  const matrix = client;
+  const roomId = selectedRoomId;
+  const generation = lifecycle;
+  if (!matrix || !roomId) return;
+  const room = matrix.getRoom(roomId);
+  const suggested = `https://meet.jit.si/${roomId.replace(/[^a-zA-Z0-9]/g, "").slice(0, 36)}`;
+  const values = await requestMatrixInput("Add Jitsi meeting", [{ label: "Jitsi meeting URL (Jitsi is a separate service and is not Matrix end-to-end encrypted)", value: suggested }], "Add meeting");
+  if (!values || client !== matrix || generation !== lifecycle) return;
+  const [url] = values;
   if (!url) return;
   try {
     const parsed = new URL(url);
     if (parsed.protocol !== "https:") throw new Error("Use a secure HTTPS Jitsi URL.");
     const widgetId = `seres-jitsi-${crypto.randomUUID()}`;
-    const sendState = client.sendStateEvent.bind(client) as (id: string, type: string, content: object, stateKey?: string) => Promise<unknown>;
-    await sendState(selectedRoomId, "im.vector.modular.widgets", {
-      creator: client.getUserId(), id: widgetId, name: "Jitsi video call", type: "jitsi", url: parsed.href,
-      roomId: selectedRoomId, data: {}, waitForIframeLoad: true,
+    const sendState = matrix.sendStateEvent.bind(matrix) as (id: string, type: string, content: object, stateKey?: string) => Promise<unknown>;
+    await sendState(roomId, "im.vector.modular.widgets", {
+      creator: matrix.getUserId(), id: widgetId, name: "Jitsi video call", type: "jitsi", url: parsed.href,
+      roomId, data: {}, waitForIframeLoad: true,
     }, widgetId);
     showJitsi(parsed.href, room?.name || selectedRoomId);
   } catch (error) { notify(safeError(error)); }
@@ -920,8 +1096,20 @@ function showCall(call: any, incoming: boolean) {
   activeCall = call;
   callPanel?.querySelector("iframe")?.setAttribute("src", "about:blank");
   const panel = h("section", "matrix-call-panel");
-  panel.append(h("strong", "", incoming ? "Incoming Matrix call" : "Matrix call"));
+  const heading = h("div", "matrix-call-heading");
+  const roomName = client?.getRoom(call.roomId || selectedRoomId)?.name || "Matrix call";
+  const status = h("span", "matrix-call-status");
+  status.setAttribute("role", "status");
+  heading.append(symbol("call"), h("strong", "", roomName), status);
+  panel.append(heading);
+  const stage = h("div", "matrix-call-stage");
+  const placeholder = h("div", "matrix-call-placeholder");
+  const avatar = h("div", "matrix-call-avatar");
+  avatar.append(symbol("person"));
+  const hint = h("span", "matrix-call-hint", "Waiting for the other participant…");
+  placeholder.append(avatar, h("strong", "", roomName), hint);
   const remote = h("video", "matrix-call-video") as HTMLVideoElement;
+  remote.hidden = true;
   remote.autoplay = true;
   remote.muted = true;
   remote.playsInline = true;
@@ -934,16 +1122,30 @@ function showCall(call: any, incoming: boolean) {
   local.setAttribute("aria-label", "Your video preview");
   const audio = h("audio") as HTMLAudioElement;
   audio.autoplay = true;
-  panel.append(remote, local, audio);
+  stage.append(placeholder, remote, local);
+  panel.append(stage, audio);
+  const answers = h("div", "matrix-call-answer-actions");
   const updateFeeds = () => {
     const remoteFeed = (call.getRemoteFeeds?.() || []).find((feed: any) => feed.purpose === "m.usermedia");
-    if (remoteFeed?.stream) { remote.srcObject = remoteFeed.stream; audio.srcObject = remoteFeed.stream; }
+    remote.srcObject = remoteFeed?.stream || null;
+    audio.srcObject = remoteFeed?.stream || null;
     audio.muted = !!remoteFeed?.isAudioMuted?.();
+    const hasVideo = (feed: any) => !!feed?.stream?.getVideoTracks?.().some((track: MediaStreamTrack) => track.enabled && track.readyState !== "ended") && !feed?.isVideoMuted?.();
+    remote.hidden = !hasVideo(remoteFeed);
+    placeholder.hidden = !remote.hidden;
     const localFeed = (call.getLocalFeeds?.() || []).find((feed: any) => feed.purpose === "m.usermedia");
-    if (localFeed?.stream && localFeed.stream.getVideoTracks().length) {
-      local.srcObject = localFeed.stream;
-      local.hidden = false;
-    }
+    local.srcObject = localFeed?.stream || null;
+    local.hidden = !hasVideo(localFeed);
+    const state = call.state;
+    const labels: Record<string, string> = {
+      fledgling: incoming ? "Incoming call" : "Starting call…", wait_local_media: "Preparing microphone / camera…",
+      create_offer: "Starting call…", invite_sent: "Calling…", ringing: "Incoming call",
+      connecting: "Connecting…", connected: "Connected", ended: "Call ended",
+    };
+    status.textContent = labels[state] || (incoming ? "Incoming call" : "Calling…");
+    panel.dataset.callState = state || "connecting";
+    hint.textContent = state === "connected" ? "Camera off · Audio call" : incoming ? "Answer to join the call" : "Waiting for the other participant…";
+    answers.hidden = !incoming || ["connecting", "connected", "ended"].includes(state);
   };
   call.on(sdk.CallEvent.FeedsChanged, updateFeeds);
   call.on(sdk.CallEvent.State, updateFeeds);
@@ -956,10 +1158,12 @@ function showCall(call: any, incoming: boolean) {
   updateFeeds();
   const controls = h("div", "matrix-call-controls");
   if (incoming) {
-    controls.append(action("Answer audio", () => void call.answer(true, false).catch((error: unknown) => notify(safeError(error)))));
-    controls.append(action("Answer video", () => void call.answer(true, true).catch((error: unknown) => notify(safeError(error)))));
+    answers.append(action("Answer audio", () => void call.answer(true, false).catch((error: unknown) => notify(safeError(error)))));
+    answers.append(action("Answer video", () => void call.answer(true, true).catch((error: unknown) => notify(safeError(error)))));
   }
-  controls.append(action("Hang up", () => { call.hangup("user_hangup", false); closeCall(); }));
+  const hangup = action("Hang up", () => { call.hangup("user_hangup", false); closeCall(); });
+  hangup.classList.add("matrix-call-hangup");
+  controls.append(answers, hangup);
   panel.append(controls);
   callPanel = panel;
   renderRoom();
@@ -1065,9 +1269,12 @@ function activate() {
   if (!client) void connect(session);
   else renderWorkspace();
 }
-function deactivate() { active = false; }
+function deactivate() { active = false; cancelInputDialog?.(); }
 
 window.SeresMatrix = { activate, deactivate };
+document.addEventListener("visibilitychange", () => {
+  if (active && client && document.visibilityState === "visible") renderRoom();
+});
 if (new URLSearchParams(location.search).has("loginToken")) {
   window.dispatchEvent(new Event("seres:open-matrix"));
 }
