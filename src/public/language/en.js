@@ -450,4 +450,9 @@ window.SeresLang.en = {
   "call.popOut": "Open in its own window",
   "call.popIn": "Back into the page",
   "call.popupBlocked": "The window could not be opened. Allow pop-ups for SereS in your browser.",
+  "pwPrompt.title": "Confirm with your password",
+  "pwPrompt.confirm": "Confirm",
+  "pwPrompt.password": "Enter your current password to change it.",
+  "pwPrompt.twofa": "Enter your password to change two-factor authentication.",
+  "pwPrompt.codes": "Enter your password to create new backup codes. The old ones stop working.",
 };

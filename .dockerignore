@@ -1,0 +1,19 @@
+# Never put data or secrets into the image.
+.env
+**/.env
+users.db*
+**/users.db*
+data/
+ecosystem.config.js
+
+# Only src/backend-rs and src/public are needed to build the image.
+.git
+.venv
+src/backend/
+src/backend-rs/target/
+src/frontend/
+**/__pycache__
+.pytest_cache
+node_modules
+tests/
+deploy/

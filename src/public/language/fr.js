@@ -450,4 +450,9 @@ window.SeresLang.fr = {
   "call.popOut": "Ouvrir dans une fenêtre",
   "call.popIn": "Revenir dans la page",
   "call.popupBlocked": "La fenêtre n'a pas pu s'ouvrir. Autorise les pop-ups pour SereS dans ton navigateur.",
+  "pwPrompt.title": "Confirme avec ton mot de passe",
+  "pwPrompt.confirm": "Confirmer",
+  "pwPrompt.password": "Saisis ton mot de passe actuel pour le changer.",
+  "pwPrompt.twofa": "Saisis ton mot de passe pour modifier la double authentification.",
+  "pwPrompt.codes": "Saisis ton mot de passe pour créer de nouveaux codes de secours. Les anciens ne marcheront plus.",
 };

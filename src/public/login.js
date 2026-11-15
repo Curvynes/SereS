@@ -27,7 +27,8 @@
         const data = await response.json().catch(() => ({}));
         return { ok: response.ok && data.success, status: response.status, data };
     }
-    async function loginWith(nameomail, password, afterLogin) {
+    /** Logs in, unlocks the private keys locally and stores them for this browser. */
+    async function loginWith(nameomail, password) {
         const pre = await postJson("/api/prelogin", { nameomail });
         if (!pre.ok)
             throw new Error(pre.data.message || t("login.failed"));
@@ -50,8 +51,6 @@
             showTwofa();
             return;
         }
-        if (afterLogin)
-            await afterLogin({ user: res.data.user, wrapKey, authHash });
         await finishLogin(res.data.user, wrapKey);
     }
     // ------------------------------------------------------------------ 2FA
@@ -180,6 +179,10 @@
             const iterations = SeresCrypto.DEFAULT_ITERATIONS;
             const { authHash, wrapKey } = await SeresCrypto.deriveAccountKeys(password, kdfSalt, iterations);
             const keys = await SeresCrypto.createKeyBundle(wrapKey);
+            // Like Discord: hand out the backup codes right away, shown only this once.
+            // They are sent with the registration, which also starts the session, so
+            // there is no second key derivation or login request.
+            const created = await SeresCrypto.createRecoveryCodes(keys.enc_private, wrapKey).catch(() => null);
             const res = await postJson("/api/register", {
                 username,
                 email,
@@ -187,25 +190,18 @@
                 kdf_salt: kdfSalt,
                 kdf_iterations: iterations,
                 keys,
+                recovery_codes: created ? created.stored : null,
             });
             if (!res.ok) {
                 setBusy(false, res.data.message || t("login.registerFailed"));
                 return;
             }
             setWarning(t("login.created"));
-            await loginWith(username, password, async (session) => {
-                // Like Discord: hand out the backup codes right away, shown only this once.
-                try {
-                    const created = await SeresCrypto.createRecoveryCodes(session.user.enc_private, session.wrapKey);
-                    const saved = await postJson("/api/recovery/codes", { old_auth_hash: session.authHash, codes: created.stored });
-                    if (!saved.ok)
-                        return;
-                    await new Promise((resolve) => SeresCodes.show(created.codes, username, resolve));
-                }
-                catch {
-                    /* codes can still be created later in the settings */
-                }
-            });
+            if (created && res.data.recovery_codes_saved) {
+                // Without codes they can still be created later in the settings.
+                await new Promise((resolve) => SeresCodes.show(created.codes, username, resolve));
+            }
+            await finishLogin(res.data.user, wrapKey);
         }
         catch (error) {
             setBusy(false, error instanceof Error ? error.message : t("login.registerFailed"));

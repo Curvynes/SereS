@@ -2795,9 +2795,68 @@
             warning.textContent = errorText(error);
         }
     }
+    /** Thrown when the password prompt was cancelled; nothing to report then. */
+    class PromptCancelled extends Error {
+    }
+    // Cancels an earlier prompt that was closed some other way.
+    let endPasswordPrompt = null;
+    /**
+     * Asks for the current password in a small dialog, only when a setting is
+     * about to change. Resolves with the password, or null when cancelled.
+     */
+    function askPassword(reason) {
+        endPasswordPrompt?.();
+        const modal = $("password-prompt-modal");
+        const form = $("password-prompt-form");
+        const input = $("password-prompt-input");
+        const cancel = $("password-prompt-cancel");
+        $("password-prompt-text").textContent = reason;
+        $("password-prompt-warning").textContent = "";
+        $("password-prompt-username").value = me.username;
+        input.value = "";
+        modal.classList.remove("modal-hidden");
+        setTimeout(() => input.focus(), 30);
+        return new Promise((resolve) => {
+            const finish = (result) => {
+                endPasswordPrompt = null;
+                input.value = "";
+                modal.classList.add("modal-hidden");
+                form.removeEventListener("submit", onSubmit);
+                cancel.removeEventListener("click", onCancel);
+                modal.removeEventListener("click", onOutside);
+                input.removeEventListener("keydown", onKey);
+                resolve(result);
+            };
+            const onSubmit = (event) => {
+                event.preventDefault();
+                if (!input.value) {
+                    $("password-prompt-warning").textContent = t("twofa.needPassword");
+                    input.focus();
+                    return;
+                }
+                finish(input.value);
+            };
+            const onCancel = () => finish(null);
+            const onOutside = (event) => {
+                if (event.target === modal)
+                    finish(null);
+            };
+            // Escape only closes this prompt, not the settings behind it.
+            const onKey = (event) => {
+                if (event.key !== "Escape")
+                    return;
+                event.stopPropagation();
+                finish(null);
+            };
+            endPasswordPrompt = onCancel;
+            form.addEventListener("submit", onSubmit);
+            cancel.addEventListener("click", onCancel);
+            modal.addEventListener("click", onOutside);
+            input.addEventListener("keydown", onKey);
+        });
+    }
     async function changePassword() {
         const warning = $("password-warning");
-        const oldPw = $("old-password").value;
         const newPw = $("new-password").value;
         const repeat = $("new-password-repeat").value;
         warning.textContent = "";
@@ -2809,6 +2868,9 @@
             warning.textContent = t("settings.passwordMismatch");
             return;
         }
+        const oldPw = await askPassword(t("pwPrompt.password"));
+        if (oldPw === null)
+            return;
         warning.textContent = t("settings.changingPassword");
         try {
             const fresh = (await api("/api/me")).user;
@@ -2830,7 +2892,7 @@
                 kdf_iterations: SeresCrypto.DEFAULT_ITERATIONS,
                 enc_private: encPrivate,
             });
-            ["old-password", "new-password", "new-password-repeat"].forEach((id) => ($(id).value = ""));
+            ["new-password", "new-password-repeat"].forEach((id) => ($(id).value = ""));
             warning.textContent = "";
             showAlert(t("settings.passwordChanged"));
         }
@@ -2959,15 +3021,13 @@
         }
     }
     // ------------------------------------------------------------------ 2FA
-    /** The current password from the 2FA section, turned into the hash the server checks. */
+    /** Asks for the current password and turns it into the hash the server checks. */
     async function twofaPasswordHash() {
-        const input = $("twofa-password");
-        if (!input.value) {
-            input.focus();
-            throw new Error(t("twofa.needPassword"));
-        }
+        const password = await askPassword(t("pwPrompt.twofa"));
+        if (password === null)
+            throw new PromptCancelled();
         const pre = await post("/api/prelogin", { nameomail: me.username });
-        const keys = await SeresCrypto.deriveAccountKeys(input.value, pre.kdf_salt, pre.kdf_iterations);
+        const keys = await SeresCrypto.deriveAccountKeys(password, pre.kdf_salt, pre.kdf_iterations);
         return keys.authHash;
     }
     async function loadTwofa() {
@@ -3007,9 +3067,10 @@
         warning.textContent = "";
         try {
             await work();
-            $("twofa-password").value = "";
         }
         catch (error) {
+            if (error instanceof PromptCancelled)
+                return;
             warning.textContent =
                 error instanceof DOMException ? t("twofa.passkeyCancelled") : errorText(error);
         }
@@ -3077,14 +3138,10 @@
     /** Makes 10 new backup codes (old ones stop working) and shows them once. */
     async function generateCodes() {
         const warning = $("codes-warning");
-        const passwordInput = $("codes-password");
-        const password = passwordInput.value;
         warning.textContent = "";
-        if (!password) {
-            warning.textContent = t("settings.codesNeedPassword");
-            passwordInput.focus();
+        const password = await askPassword(t("pwPrompt.codes"));
+        if (password === null)
             return;
-        }
         const button = $("codes-generate");
         button.disabled = true;
         warning.textContent = t("settings.codesCreating");
@@ -3100,7 +3157,6 @@
                 throw new Error(t("settings.codesWrongPassword"));
             }
             await post("/api/recovery/codes", { old_auth_hash: keys.authHash, codes: created.stored });
-            passwordInput.value = "";
             warning.textContent = "";
             await loadCodesStatus();
             SeresCodes.show(created.codes, me.username);

@@ -1,5 +1,6 @@
 .venv
 node_modules
+target
 package-lock.json
 package.json
 users.db
@@ -11,3 +12,4 @@ users.db-shm
 ecosystem.config.js
 !src/matrix/package.json
 !src/matrix/package-lock.json
+data/

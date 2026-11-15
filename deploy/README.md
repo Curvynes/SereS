@@ -8,22 +8,22 @@ curl -fsSLO https://raw.githubusercontent.com/SereSChat/SereS/main/deploy/instal
 bash install.sh --public-url https://beta.seres-chat.com --rp-id seres-chat.com
 ```
 
-What it does (everything that is already there is kept):
+What it does (existing data and settings are kept):
 
-1. installs Python 3 + venv, git and curl with `apt`
-2. installs Node.js 22 with npm (NodeSource) if there is no Node.js 18 or newer, then `pm2`
+1. installs git, curl and Rust build dependencies with `apt`
+2. installs Rust stable with rustup, and Node.js 22 with npm (NodeSource) if there is no Node.js 18 or newer, then `pm2`
 3. clones SereS to `~/SereS` – or, if SereS is already there, updates it with `git pull`
    (changes made by hand, e.g. mail settings in `.env`, are kept)
-4. creates `.venv` and installs `requirements.txt` and `gunicorn`
+4. builds the Rust backend in release mode; startup imports existing JSON/per-chat data and copies
+   legacy avatars and attachments into SQLite BLOB tables while keeping the old files
 5. installs **coturn**, the TURN server for voice calls, and writes `/etc/turnserver.conf`
-6. writes `ecosystem.config.js` (gunicorn with `--preload`, on `127.0.0.1` and `::1`, plus the
-   TURN settings) and starts SereS with pm2
+6. writes `ecosystem.config.js` and starts the Rust backend with pm2 on `127.0.0.1` and on
+   `::1` when IPv6 loopback is available
 7. sets up `pm2 startup`, so SereS starts again after a reboot, and checks that it answers
 
 | Option | Meaning |
 | --- | --- |
 | `--port` | Port SereS listens on, default `2222` |
-| `--workers` | Number of gunicorn workers, default `4` |
 | `--public-url` | Address of SereS, for the links in mails and for passkeys |
 | `--rp-id` | Domain for passkeys, e.g. `seres-chat.com` (works for all subdomains) |
 | `--turn-host` | Public address of the TURN server, default: the server's public IPv4 |
@@ -32,7 +32,7 @@ What it does (everything that is already there is kept):
 | `--branch` | Git branch for a new download, default `main` |
 | `--name` | Name in pm2, default `SereS` |
 | `--no-pull` | Don't run `git pull` |
-| `--no-ipv6` | Only listen on `127.0.0.1` |
+| `--no-ipv6` | Don't listen on the IPv6 loopback address |
 | `--no-startup` | Don't start SereS automatically after a reboot |
 
 **Update:** run `~/SereS/deploy/install.sh` again. It installs only what is missing (e.g. coturn
@@ -69,8 +69,7 @@ IPv4 address.
 ```bash
 cd /path/to/SereS            # where SereS is installed
 git pull
-source .venv/bin/activate
-pip install -r requirements.txt   # new: webauthn (passkeys)
+./deploy/install.sh --no-pull
 ```
 
 ## 2. Run the script
@@ -120,7 +119,7 @@ to the existing one. With Cloudflare: set the A record for `mail.` to "DNS only"
 ## 5. Restart SereS and check
 
 ```bash
-sudo systemctl restart seres      # or however SereS is started on your server
+pm2 restart SereS
 ```
 
 After the DNS changes are live (minutes up to a few hours):

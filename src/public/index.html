@@ -364,9 +364,9 @@
           <p><span class="material-symbols-rounded">shield</span> <span data-i18n="twofa.title">Two-factor authentication (optional):</span></p>
           <p class="settings-hint" id="twofa-status"></p>
           <div class="twofa-list" id="twofa-list"></div>
-          <input type="password" id="twofa-password" placeholder="Current password" data-i18n-placeholder="settings.oldPassword" autocomplete="current-password" />
           <button class="modal-btn secondary-btn" type="button" id="twofa-add-passkey"><span class="material-symbols-rounded">passkey</span><span data-i18n="twofa.addPasskey">Add a passkey (phone, security key, Windows Hello…)</span></button>
           <button class="modal-btn secondary-btn" type="button" id="twofa-totp-button"><span class="material-symbols-rounded">phonelink_lock</span><span data-i18n="twofa.setupTotp">Set up an authenticator app</span></button>
+
           <div class="twofa-totp modal-hidden" id="twofa-totp-setup">
             <p class="settings-hint" data-i18n="twofa.totpScan">Scan the QR code with your authenticator app (Google Authenticator, Microsoft Authenticator, Aegis, …) and enter the 6-digit code.</p>
             <div class="qr-wrap" id="twofa-qr"></div>
@@ -380,7 +380,6 @@
         <form class="settings-section" id="codes-form" autocomplete="off">
           <p><span class="material-symbols-rounded">key</span> <span data-i18n="settings.codesText">Backup codes (to set a new password if you forget yours):</span></p>
           <p class="settings-hint" id="codes-status"></p>
-          <input type="password" id="codes-password" placeholder="Current password" data-i18n-placeholder="settings.oldPassword" autocomplete="current-password" />
           <button class="modal-btn secondary-btn" type="submit" id="codes-generate" data-i18n="settings.codesButton">Generate new backup codes</button>
           <p class="settings-hint settings-notice" id="codes-warning" role="status" aria-live="polite"></p>
         </form>
@@ -390,7 +389,6 @@
         <form class="settings-section" id="password-form" autocomplete="on">
           <p data-i18n="settings.passwordText">Change password:</p>
           <input type="text" id="password-username" class="visually-hidden" autocomplete="username" tabindex="-1" aria-hidden="true" readonly />
-          <input type="password" id="old-password" placeholder="Current password" data-i18n-placeholder="settings.oldPassword" autocomplete="current-password" />
           <input type="password" id="new-password" placeholder="New password (min. 8 characters)" data-i18n-placeholder="settings.newPassword" autocomplete="new-password" />
           <input type="password" id="new-password-repeat" placeholder="Repeat new password" data-i18n-placeholder="settings.repeatPassword" autocomplete="new-password" />
           <button class="modal-btn secondary-btn" type="submit" id="change-password-btn" data-i18n="settings.changeButton">Change password</button>
@@ -401,6 +399,21 @@
           <button class="modal-btn cancel-btn" type="button" data-close-modal data-i18n="common.close">Close</button>
         </div>
       </div>
+    </div>
+
+    <!-- Asks for the current password only when a setting is about to change -->
+    <div class="modal-overlay modal-hidden" id="password-prompt-modal">
+      <form class="modal-box" id="password-prompt-form" autocomplete="on">
+        <h3 data-i18n="pwPrompt.title">Confirm with your password</h3>
+        <p id="password-prompt-text"></p>
+        <input type="text" id="password-prompt-username" class="visually-hidden" autocomplete="username" tabindex="-1" aria-hidden="true" readonly />
+        <input type="password" id="password-prompt-input" placeholder="Current password" data-i18n-placeholder="settings.oldPassword" autocomplete="current-password" />
+        <h4 class="modal-warning" id="password-prompt-warning"></h4>
+        <div class="modal-buttons">
+          <button class="modal-btn cancel-btn" type="button" id="password-prompt-cancel" data-i18n="common.cancel">Cancel</button>
+          <button class="modal-btn confirm-btn" type="submit" data-i18n="pwPrompt.confirm">Confirm</button>
+        </div>
+      </form>
     </div>
 
     <script src="language/en.js"></script>

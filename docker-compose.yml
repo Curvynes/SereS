@@ -1,0 +1,17 @@
+# Start: copy .env.example to .env, fill it in, then: docker compose up -d --build
+services:
+  seres:
+    build: .
+    image: seres:latest
+    container_name: seres
+    restart: unless-stopped
+    # Shares the network with the server: a Cloudflare tunnel or reverse proxy
+    # reaches SereS at localhost:2222, and SereS reaches a mail server on the
+    # host at localhost:25. SereS only listens on localhost (HOST and
+    # SERES_EXTRA_HOST), so it is not reachable from outside directly.
+    network_mode: host
+    # Passwords and other settings; .env is never committed.
+    env_file: .env
+    volumes:
+      # The database, including profile pictures and attachments.
+      - ./data:/data

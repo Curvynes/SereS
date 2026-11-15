@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # Installs SereS on Ubuntu / Debian and keeps it running with pm2.
 #
-#   - installs what is missing: Python 3 + venv, git, curl, Node.js + npm, pm2
+#   - installs what is missing: Rust, git, curl, Node.js + npm, pm2
 #   - downloads SereS with git, or updates an existing copy with git pull
-#   - creates the Python venv and installs the requirements + gunicorn
+#   - builds the Rust backend in release mode
 #   - installs and sets up a TURN server (coturn) for voice calls
 #   - writes ecosystem.config.js (with PUBLIC_URL / WEBAUTHN_RP_ID if given)
 #     and starts SereS with pm2
 #   - lets pm2 start SereS again after a reboot
 #
 # Usage (as the user SereS should run as, not as root; asks for sudo):
-#   ./deploy/install.sh [--port 2222] [--workers 4] [--name SereS]
+#   ./deploy/install.sh [--port 2222] [--name SereS]
 #        [--public-url https://beta.seres-chat.com] [--rp-id seres-chat.com]
 #        [--turn-host 203.0.113.10] [--no-turn]
 #        [--dir ~/SereS] [--branch main] [--no-pull] [--no-ipv6] [--no-startup]
@@ -25,9 +25,8 @@ set -euo pipefail
 REPO_URL="https://github.com/SereSChat/SereS.git"
 BRANCH="main"
 DIR=""
-NAME="SereS"
+NAME=""
 PORT=""
-WORKERS="4"
 TURN=1
 TURN_HOST=""
 TURN_PORT=3478
@@ -35,9 +34,9 @@ TURN_MIN_PORT=49160
 TURN_MAX_PORT=49200
 PUBLIC_URL=""
 RP_ID=""
-IPV6=1
 PULL=1
 STARTUP=1
+IPV6=1
 NODE_MAJOR=22
 
 usage() {
@@ -58,7 +57,6 @@ step() {
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --port) PORT="${2:-}"; shift 2 ;;
-    --workers) WORKERS="${2:-}"; shift 2 ;;
     --name) NAME="${2:-}"; shift 2 ;;
     --public-url) PUBLIC_URL="${2:-}"; shift 2 ;;
     --rp-id) RP_ID="${2:-}"; shift 2 ;;
@@ -75,7 +73,6 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -z "$PORT" || "$PORT" =~ ^[0-9]+$ ]] || die "--port must be a number"
-[[ "$WORKERS" =~ ^[0-9]+$ ]] || die "--workers must be a number"
 command -v apt-get >/dev/null || die "only Ubuntu / Debian (apt) are supported"
 
 if [[ $EUID -eq 0 ]]; then
@@ -91,10 +88,10 @@ RUN_HOME="$HOME"
 
 # ---------------------------------------------------------------- packages
 
-step "Installing system packages (Python, venv, git, curl)"
+step "Installing system packages (git, curl)"
 $SUDO apt-get update -qq
 $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-  python3 python3-venv python3-pip git curl ca-certificates gnupg >/dev/null
+  git curl ca-certificates gnupg build-essential pkg-config libssl-dev >/dev/null
 
 node_ok() {
   command -v node >/dev/null && command -v npm >/dev/null || return 1
@@ -121,15 +118,25 @@ else
   command -v pm2 >/dev/null || die "pm2 could not be installed"
 fi
 
+if [[ ! -x "$RUN_HOME/.cargo/bin/rustup" ]]; then
+  step "Installing Rust stable with rustup"
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+fi
+[[ -f "$RUN_HOME/.cargo/env" ]] && source "$RUN_HOME/.cargo/env"
+"$RUN_HOME/.cargo/bin/rustup" toolchain install stable --profile minimal --no-self-update >/dev/null
+"$RUN_HOME/.cargo/bin/rustup" default stable >/dev/null
+export PATH="$RUN_HOME/.cargo/bin:$PATH"
+command -v cargo >/dev/null || die "Rust could not be installed"
+
 # ------------------------------------------------------------------- SereS
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [[ -z "$DIR" && -f "$SCRIPT_DIR/../src/backend/app.py" ]]; then
+if [[ -z "$DIR" && -f "$SCRIPT_DIR/../src/backend-rs/Cargo.toml" ]]; then
   DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
   step "Using SereS in $DIR"
 else
   DIR="${DIR:-$RUN_HOME/SereS}"
-  if [[ -f "$DIR/src/backend/app.py" ]]; then
+  if [[ -f "$DIR/src/backend-rs/Cargo.toml" ]]; then
     step "Using SereS in $DIR"
   else
     [[ -e "$DIR" && -n "$(ls -A "$DIR" 2>/dev/null)" ]] && die "$DIR exists but is not SereS"
@@ -146,33 +153,32 @@ if [[ $PULL -eq 1 && -d "$DIR/.git" ]]; then
     echo "    git pull failed, keeping the current version (see: git -C $DIR status)."
 fi
 BACKEND="$DIR/src/backend"
-VENV="$DIR/.venv"
+PUBLIC_DIR="$DIR/src/public"
+BIN="$DIR/src/backend-rs/target/release/seres-backend"
 
-step "Setting up the Python venv in $VENV"
-[[ -x "$VENV/bin/python" ]] || python3 -m venv "$VENV"
-"$VENV/bin/python" -m pip install -q --upgrade pip
-"$VENV/bin/python" -m pip install -q -r "$DIR/requirements.txt" gunicorn
+step "Building the Rust backend"
+cargo build --release --locked --manifest-path "$DIR/src/backend-rs/Cargo.toml"
+[[ -x "$BIN" ]] || die "Rust backend build did not produce $BIN"
 
 # Settings from an earlier run stay when the options are left out. They are
 # kept in ecosystem.config.js instead of src/backend/.env, because .env is part
 # of the repository and a changed .env would block "git pull".
 previous() {
   [[ -f "$DIR/ecosystem.config.js" ]] || return 0
-  sed -n "s/^ *$1: '\(.*\)',\$/\1/p" "$DIR/ecosystem.config.js" | head -n 1
+  node -e 'try { const app=require(process.argv[1]).apps?.[0]; const key=process.argv[2]; const v=app?.env?.[key]; if (v !== undefined) process.stdout.write(String(v)); else if (key === "PORT") { const m=String(app?.args || "").match(/-b 127\.0\.0\.1:(\d+)/); if (m) process.stdout.write(m[1]); } } catch {}' \
+    "$DIR/ecosystem.config.js" "$1"
 }
+previous_name() {
+  [[ -f "$DIR/ecosystem.config.js" ]] || return 0
+  node -e 'try { const c=require(process.argv[1]); process.stdout.write(String(c.apps?.[0]?.name || "")); } catch {}' \
+    "$DIR/ecosystem.config.js"
+}
+NAME="${NAME:-$(previous_name)}"
+NAME="${NAME:-SereS}"
 PUBLIC_URL="${PUBLIC_URL:-$(previous PUBLIC_URL)}"
 RP_ID="${RP_ID:-$(previous WEBAUTHN_RP_ID)}"
-if [[ -z "$PORT" && -f "$DIR/ecosystem.config.js" ]]; then
-  PORT="$(grep -o -- '-b 127.0.0.1:[0-9]*' "$DIR/ecosystem.config.js" | head -n 1 | cut -d: -f2 || true)"
-fi
+PORT="${PORT:-$(previous PORT)}"
 PORT="${PORT:-2222}"
-[[ "$PUBLIC_URL" != *"'"* && "$RP_ID" != *"'"* ]] || die "no ' allowed in --public-url / --rp-id"
-
-ENV_LINES=""
-[[ -n "$PUBLIC_URL" ]] && ENV_LINES="$ENV_LINES
-        PUBLIC_URL: '$PUBLIC_URL',"
-[[ -n "$RP_ID" ]] && ENV_LINES="$ENV_LINES
-        WEBAUTHN_RP_ID: '$RP_ID',"
 
 # ------------------------------------------------------------------- TURN
 
@@ -203,7 +209,7 @@ if [[ $TURN -eq 1 ]]; then
   elif $SUDO test -f "$TURN_CONF"; then
     $SUDO cp -n "$TURN_CONF" "$TURN_CONF.before-seres"
   fi
-  TURN_SECRET="${TURN_SECRET:-$(python3 -c 'import secrets; print(secrets.token_hex(32))')}"
+  TURN_SECRET="${TURN_SECRET:-$(node -e 'console.log(require("crypto").randomBytes(32).toString("hex"))')}"
   [[ "$TURN_SECRET" =~ ^[0-9a-f]+$ ]] || die "unexpected TURN secret in $TURN_CONF"
 
   step "Writing $TURN_CONF (TURN on $TURN_HOST:$TURN_PORT)"
@@ -252,45 +258,44 @@ TURNCONF
     echo "    No systemd here: start coturn yourself (turnserver -c $TURN_CONF)."
   fi
 
-  ENV_LINES="$ENV_LINES
-        TURN_URLS: 'turn:$TURN_HOST:$TURN_PORT?transport=udp,turn:$TURN_HOST:$TURN_PORT?transport=tcp',
-        TURN_SECRET: '$TURN_SECRET',"
 fi
 
 # ------------------------------------------------------------------- pm2
 
-# --preload: the database is migrated once before the workers start, so they
-# don't all try to add the same columns at the same time.
-BINDS="-b 127.0.0.1:$PORT"
-# Also on IPv6, because "localhost" (e.g. in a Cloudflare tunnel) can mean ::1.
-if [[ $IPV6 -eq 1 ]] && "$VENV/bin/python" -c 'import socket; socket.socket(socket.AF_INET6).bind(("::1", 0))' 2>/dev/null; then
-  BINDS="$BINDS -b [::1]:$PORT"
-fi
-GUNICORN_ARGS="-m gunicorn --preload -w $WORKERS $BINDS"
-# Newer gunicorn versions open a control socket that pm2 doesn't need.
-if "$VENV/bin/python" -m gunicorn --help 2>/dev/null | grep -q -- "--no-control-socket"; then
-  GUNICORN_ARGS="$GUNICORN_ARGS --no-control-socket"
-fi
-GUNICORN_ARGS="$GUNICORN_ARGS app:app"
-
 step "Writing $DIR/ecosystem.config.js"
-cat >"$DIR/ecosystem.config.js" <<EOF
-// Written by deploy/install.sh. Start with: pm2 start ecosystem.config.js
-module.exports = {
-  apps: [
-    {
-      name: '$NAME',
-      cwd: '$BACKEND',
-      script: '$VENV/bin/python',
-      args: '$GUNICORN_ARGS',
-      interpreter: 'none',
-      autorestart: true,
-      env: {$ENV_LINES
-      },
-    },
-  ],
+export SERES_PM2_NAME="$NAME" SERES_PM2_BIN="$BIN" SERES_PM2_CWD="$BACKEND"
+export SERES_PM2_PORT="$PORT" SERES_PM2_PUBLIC_DIR="$PUBLIC_DIR" SERES_PM2_DATA_DIR="$BACKEND"
+export SERES_PM2_PUBLIC_URL="$PUBLIC_URL" SERES_PM2_RP_ID="$RP_ID"
+IPV6_HOST=""
+if [[ $IPV6 -eq 1 ]] && node -e 'const net=require("net");const s=net.createServer();s.once("error",()=>process.exit(1));s.listen({host:"::1",port:0},()=>s.close());' 2>/dev/null; then
+  IPV6_HOST="::1"
+fi
+export SERES_PM2_IPV6_HOST="$IPV6_HOST"
+export SERES_PM2_TURN_HOST="$TURN_HOST" SERES_PM2_TURN_PORT="$TURN_PORT"
+export SERES_PM2_TURN_SECRET="${TURN_SECRET:-}"
+export SERES_PM2_TURN_ENABLED="$TURN"
+export SERES_PM2_CONFIG="$DIR/ecosystem.config.js"
+node <<'NODE'
+const fs = require('fs');
+const env = {
+  HOST: '127.0.0.1',
+  PORT: process.env.SERES_PM2_PORT,
+  SERES_PUBLIC_DIR: process.env.SERES_PM2_PUBLIC_DIR,
+  SERES_DATA_DIR: process.env.SERES_PM2_DATA_DIR,
 };
-EOF
+if (process.env.SERES_PM2_PUBLIC_URL) env.PUBLIC_URL = process.env.SERES_PM2_PUBLIC_URL;
+if (process.env.SERES_PM2_RP_ID) env.WEBAUTHN_RP_ID = process.env.SERES_PM2_RP_ID;
+if (process.env.SERES_PM2_IPV6_HOST) env.SERES_EXTRA_HOST = process.env.SERES_PM2_IPV6_HOST;
+if (process.env.SERES_PM2_TURN_ENABLED === '1') {
+  env.TURN_URLS = `turn:${process.env.SERES_PM2_TURN_HOST}:${process.env.SERES_PM2_TURN_PORT}?transport=udp,turn:${process.env.SERES_PM2_TURN_HOST}:${process.env.SERES_PM2_TURN_PORT}?transport=tcp`;
+  env.TURN_SECRET = process.env.SERES_PM2_TURN_SECRET;
+}
+const config = { apps: [{ name: process.env.SERES_PM2_NAME, cwd: process.env.SERES_PM2_CWD,
+  script: process.env.SERES_PM2_BIN, args: '', interpreter: 'none', autorestart: true, env }] };
+fs.writeFileSync(process.env.SERES_PM2_CONFIG,
+  `// Written by deploy/install.sh. Start with: pm2 start ecosystem.config.js\nmodule.exports = ${JSON.stringify(config, null, 2)};\n`,
+  { mode: 0o600 });
+NODE
 # It contains the TURN secret.
 chmod 600 "$DIR/ecosystem.config.js"
 
